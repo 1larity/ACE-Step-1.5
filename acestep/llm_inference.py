@@ -413,8 +413,8 @@ class LLMHandler:
         """Initialize 5Hz LM model using vllm backend"""
         if not torch.cuda.is_available():
             self.llm_initialized = False
-            logger.error("CUDA is not available. Please check your GPU setup.")
-            return "❌ CUDA is not available. Please check your GPU setup."
+            logger.error("CUDA/ROCm is not available. Please check your GPU setup.")
+            return "❌ CUDA/ROCm is not available. Please check your GPU setup."
         try:
             from nanovllm import LLM, SamplingParams
         except ImportError:
@@ -441,11 +441,15 @@ class LLMHandler:
             else:
                 self.max_model_len = 4096
             
-            logger.info(f"Initializing 5Hz LM with model: {model_path}, enforce_eager: False, tensor_parallel_size: 1, max_model_len: {self.max_model_len}, gpu_memory_utilization: {gpu_memory_utilization:.3f}")
+            # Disable CUDA/HIP graphs on ROCm (unverified on RDNA3 Windows)
+            is_rocm = hasattr(torch.version, 'hip') and torch.version.hip is not None
+            enforce_eager = True if is_rocm else False
+
+            logger.info(f"Initializing 5Hz LM with model: {model_path}, enforce_eager: {enforce_eager}, tensor_parallel_size: 1, max_model_len: {self.max_model_len}, gpu_memory_utilization: {gpu_memory_utilization:.3f}")
             start_time = time.time()
             self.llm = LLM(
                 model=model_path,
-                enforce_eager=False,
+                enforce_eager=enforce_eager,
                 tensor_parallel_size=1,
                 max_model_len=self.max_model_len,
                 gpu_memory_utilization=gpu_memory_utilization,
