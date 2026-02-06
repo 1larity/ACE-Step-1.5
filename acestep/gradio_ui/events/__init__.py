@@ -1012,11 +1012,11 @@ def setup_training_event_handlers(demo, dit_handler, llm_handler, training_secti
             training_section["has_raw_lyrics_state"],
         ]
     ).then(
-        fn=lambda status: f"{status}\n✅ Preview refreshed.",
+        fn=lambda status: f"{status or '✅ Auto-label complete.'}\n✅ Preview refreshed.",
         inputs=[training_section["label_progress"]],
         outputs=[training_section["label_progress"]],
     ).then(
-        fn=lambda has_raw: gr.update(visible=has_raw),
+        fn=lambda has_raw: gr.update(visible=bool(has_raw)),
         inputs=[training_section["has_raw_lyrics_state"]],
         outputs=[training_section["raw_lyrics_display"]],
     )

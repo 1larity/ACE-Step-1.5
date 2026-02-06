@@ -149,6 +149,9 @@ def get_sample_preview(
     if builder_state is None or not builder_state.samples:
         return empty
 
+    if sample_idx is None:
+        return empty
+
     idx = int(sample_idx)
     if idx < 0 or idx >= len(builder_state.samples):
         return empty
