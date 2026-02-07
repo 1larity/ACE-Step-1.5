@@ -11,6 +11,7 @@ from loguru import logger
 import gradio as gr
 
 from acestep.training.dataset_builder import DatasetBuilder, AudioSample
+from acestep.debug_utils import debug_log_for, debug_start_for, debug_end_for
 
 
 def create_dataset_builder() -> DatasetBuilder:
@@ -108,6 +109,8 @@ def auto_label_all(
 
     if llm_handler is None or not llm_handler.llm_initialized:
         return builder_state.get_samples_dataframe_data(), "� LLM not initialized. Please initialize the service with LLM enabled.", builder_state
+
+    debug_log_for("dataset", f"UI preprocess_dataset: output_dir='{output_dir.strip()}'")
 
     def progress_callback(msg):
         if progress:
@@ -322,6 +325,7 @@ def load_existing_dataset_for_preprocess(
         return ("� Please enter a dataset path", [], _safe_slider(0, value=0, visible=False), builder_state) + empty_preview + updates
 
     dataset_path = dataset_path.strip()
+    debug_log_for("dataset", f"UI load_existing_dataset_for_preprocess: path='{dataset_path}'")
 
     if not os.path.exists(dataset_path):
         updates = (gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
@@ -331,7 +335,9 @@ def load_existing_dataset_for_preprocess(
     builder = DatasetBuilder()
 
     # Load the dataset
+    t0 = debug_start_for("dataset", "load_dataset")
     samples, status = builder.load_dataset(dataset_path)
+    debug_end_for("dataset", "load_dataset", t0)
 
     if not samples:
         updates = (gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
@@ -431,11 +437,13 @@ def preprocess_dataset(
                 pass
     
     # Run preprocessing
+    t0 = debug_start_for("dataset", "preprocess_to_tensors")
     output_paths, status = builder_state.preprocess_to_tensors(
         dit_handler=dit_handler,
         output_dir=output_dir.strip(),
         progress_callback=progress_callback,
     )
+    debug_end_for("dataset", "preprocess_to_tensors", t0)
     
     return status
 
