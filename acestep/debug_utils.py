@@ -4,7 +4,7 @@ Debug helpers (global).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Callable, Union
 
 from acestep.constants import (
     TENSOR_DEBUG_MODE,
@@ -32,10 +32,12 @@ def is_debug_verbose(mode: str) -> bool:
     return _normalize_mode(mode) == "VERBOSE"
 
 
-def debug_log(message: str, *, mode: str = TENSOR_DEBUG_MODE, prefix: str = "debug") -> None:
+def debug_log(message: Union[str, Callable[[], str]], *, mode: str = TENSOR_DEBUG_MODE, prefix: str = "debug") -> None:
     """Emit a timestamped debug log line if the mode is enabled."""
     if not is_debug_enabled(mode):
         return
+    if callable(message):
+        message = message()
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     print(f"[{prefix}] {ts} {message}", flush=True)
 
@@ -60,7 +62,7 @@ def get_debug_mode(name: str, default: str = "OFF") -> str:
     return DEBUG_SWITCHES.get((name or "").strip().lower(), default)
 
 
-def debug_log_for(name: str, message: str, *, prefix: str | None = None) -> None:
+def debug_log_for(name: str, message: Union[str, Callable[[], str]], *, prefix: str | None = None) -> None:
     """Emit a timestamped debug log for a named subsystem."""
     mode = get_debug_mode(name)
     debug_log(message, mode=mode, prefix=prefix or name)
@@ -78,7 +80,7 @@ def debug_end_for(name: str, label: str, start_ts: Optional[float]) -> None:
     debug_end(label, start_ts, mode=mode, prefix=name)
 
 
-def debug_log_verbose_for(name: str, message: str, *, prefix: str | None = None) -> None:
+def debug_log_verbose_for(name: str, message: Union[str, Callable[[], str]], *, prefix: str | None = None) -> None:
     """Emit a timestamped debug log only in VERBOSE mode for a named subsystem."""
     mode = get_debug_mode(name)
     if not is_debug_verbose(mode):

@@ -144,14 +144,14 @@ LM_MODEL_NAMES = {
 # ==============================================================================
 
 # Tensor debug mode (values: "OFF" | "ON" | "VERBOSE")
-TENSOR_DEBUG_MODE = "VERBOSE"
+TENSOR_DEBUG_MODE = "OFF"
 
 # Placeholder debug switches for other main functionality (default "OFF")
 # Update names/usage as features adopt them.
 DEBUG_API_SERVER = "OFF"
 DEBUG_INFERENCE = "OFF"
 DEBUG_TRAINING = "OFF"
-DEBUG_DATASET = "VERBOSE"
+DEBUG_DATASET = "OFF"
 DEBUG_AUDIO = "OFF"
 DEBUG_LLM = "OFF"
 DEBUG_UI = "OFF"
