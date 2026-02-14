@@ -25,7 +25,26 @@ class LyricTimestampMixin(LyricAlignmentCommonMixin):
         seed: int = 42,
         custom_layers_config: Optional[Dict[int, List[int]]] = None,
     ) -> Dict[str, Any]:
-        """Generate LRC timestamps by aligning decoder cross-attention to lyric tokens."""
+        """Generate LRC timestamps by aligning decoder cross-attention to lyric tokens.
+
+        Args:
+            pred_latent (torch.Tensor): Generated latent tensor shaped ``[B, T, D]``.
+            encoder_hidden_states (torch.Tensor): Decoder conditioning states.
+            encoder_attention_mask (torch.Tensor): Conditioning attention mask.
+            context_latents (torch.Tensor): Context latents aligned to ``pred_latent``.
+            lyric_token_ids (torch.Tensor): Tokenized lyric sequence including header tokens.
+            total_duration_seconds (float): Audio duration used to scale timestamp output.
+            vocal_language (str): Language tag used to locate lyric header boundary.
+            inference_steps (int): Positive diffusion step count for ``t_last``.
+            seed (int): Noise seed used for deterministic timestamp sampling.
+            custom_layers_config (Optional[Dict[int, List[int]]]): Optional attention layer/head map.
+
+        Returns:
+            Dict[str, Any]: Timestamp payload with ``lrc_text``, token/sentence timestamps, ``success``, and ``error``.
+
+        Raises:
+            Exception: Unexpected runtime failures are re-raised after logging.
+        """
         if self.model is None:
             return self._lyric_timestamp_error("Model not initialized")
 
@@ -44,6 +63,11 @@ class LyricTimestampMixin(LyricAlignmentCommonMixin):
                 context_latents=context_latents,
             )
             bsz = pred_latent.shape[0]
+            if not isinstance(inference_steps, int) or inference_steps <= 0:
+                return self._lyric_timestamp_error(
+                    f"inference_steps must be a positive non-zero integer, got {inference_steps!r}"
+                )
+
             t_last_val = 1.0 / inference_steps
             t_tensor = torch.tensor([t_last_val] * bsz, device=pred_latent.device, dtype=pred_latent.dtype)
             noise = self._sample_noise_like(pred_latent, seed)

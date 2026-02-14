@@ -24,7 +24,25 @@ class LyricScoreMixin(LyricAlignmentCommonMixin):
         seed: int = 42,
         custom_layers_config: Optional[Dict[int, List[int]]] = None,
     ) -> Dict[str, Any]:
-        """Calculate lyric alignment scores for pure-noise and regressed-latent inputs."""
+        """Calculate lyric alignment scores for pure-noise and regressed-latent inputs.
+
+        Args:
+            pred_latent (torch.Tensor): Generated latent tensor shaped ``[B, T, D]``.
+            encoder_hidden_states (torch.Tensor): Decoder conditioning states.
+            encoder_attention_mask (torch.Tensor): Conditioning attention mask.
+            context_latents (torch.Tensor): Context latents aligned to ``pred_latent``.
+            lyric_token_ids (torch.Tensor): Tokenized lyric ids for alignment slicing.
+            vocal_language (str): Language tag used to parse lyric header tokens.
+            inference_steps (int): Positive diffusion step count for ``t_last``.
+            seed (int): Noise seed used for deterministic score sampling.
+            custom_layers_config (Optional[Dict[int, List[int]]]): Optional attention layer/head map.
+
+        Returns:
+            Dict[str, Any]: Score payload with ``lm_score``, ``dit_score``, ``success``, and ``error``.
+
+        Raises:
+            Exception: Unexpected runtime failures are re-raised after logging.
+        """
         if self.model is None:
             return self._lyric_score_error("Model not initialized")
 
@@ -44,6 +62,11 @@ class LyricScoreMixin(LyricAlignmentCommonMixin):
             )
 
             bsz = pred_latent.shape[0]
+            if not isinstance(inference_steps, int) or inference_steps <= 0:
+                raise ValueError(
+                    f"inference_steps must be a positive non-zero integer, got {inference_steps!r}"
+                )
+
             x0 = self._sample_noise_like(pred_latent, seed)
             t_last_val = 1.0 / inference_steps
 
