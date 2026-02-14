@@ -115,6 +115,9 @@ class LyricTimestampMixin(LyricAlignmentCommonMixin):
                 "success": True,
                 "error": None,
             }
-        except Exception as exc:
+        except (ValueError, KeyError, RuntimeError, OSError) as exc:
             logger.exception("[get_lyric_timestamp] Failed")
             return self._lyric_timestamp_error(f"Error generating timestamps: {exc}")
+        except Exception:
+            logger.exception("[get_lyric_timestamp] Unexpected failure")
+            raise

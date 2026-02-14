@@ -135,9 +135,12 @@ class LyricScoreMixin(LyricAlignmentCommonMixin):
                 "success": True,
                 "error": None,
             }
-        except Exception as exc:
+        except (ValueError, KeyError, RuntimeError, OSError) as exc:
             logger.exception("[get_lyric_score] Failed")
             return self._lyric_score_error(f"Error generating score: {exc}")
+        except Exception:
+            logger.exception("[get_lyric_score] Unexpected failure")
+            raise
 
     def _calculate_single_lyric_score(
         self,
