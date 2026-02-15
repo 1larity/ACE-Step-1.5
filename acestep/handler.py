@@ -38,7 +38,7 @@ from acestep.model_downloader import (
     check_model_exists,
     get_checkpoints_dir,
 )
-from acestep.constants import DEFAULT_DIT_INSTRUCTION, SFT_GEN_PROMPT, TASK_INSTRUCTIONS
+from acestep.constants import DEFAULT_DIT_INSTRUCTION, SFT_GEN_PROMPT
 from acestep.core.generation.handler import (
     AudioCodesMixin,
     BatchPrepMixin,
@@ -48,6 +48,8 @@ from acestep.core.generation.handler import (
     ConditioningTargetMixin,
     ConditioningTextMixin,
     DiffusionMixin,
+    GenerateMusicExecuteMixin,
+    GenerateMusicRequestMixin,
     InitServiceMixin,
     IoAudioMixin,
     LyricScoreMixin,
@@ -71,6 +73,8 @@ warnings.filterwarnings("ignore")
 
 class AceStepHandler(
     DiffusionMixin,
+    GenerateMusicExecuteMixin,
+    GenerateMusicRequestMixin,
     AudioCodesMixin,
     BatchPrepMixin,
     ConditioningBatchMixin,
@@ -1632,190 +1636,83 @@ class AceStepHandler(
             - success: Whether generation completed successfully
             - error: Error message if generation failed
         """
-        if progress is None:
-            def progress(*args, **kwargs):
-                """No-op progress callback when no UI progress handler is provided."""
-                pass
+        progress = self._resolve_generate_music_progress(progress)
 
         if self.model is None or self.vae is None or self.text_tokenizer is None or self.text_encoder is None:
-            return {
-                "audios": [],
-                "status_message": "âŒ Model not fully initialized. Please initialize all components first.",
-                "extra_outputs": {},
-                "success": False,
-                "error": "Model not fully initialized",
-            }
+            readiness_error = self._validate_generate_music_readiness()
+            return readiness_error
 
-        def _has_audio_codes(v: Union[str, List[str]]) -> bool:
-            """Return True when at least one non-empty audio-code string is present."""
-            if isinstance(v, list):
-                return any((x or "").strip() for x in v)
-            return bool(v and str(v).strip())
-
-        # Auto-detect task type based on audio_code_string
-        # If audio_code_string is provided and not empty, use cover task
-        # Otherwise, use text2music task (or keep current task_type if not text2music)
-        if task_type == "text2music":
-            if _has_audio_codes(audio_code_string):
-                # User has provided audio codes, switch to cover task
-                task_type = "cover"
-                # Update instruction for cover task
-                instruction = TASK_INSTRUCTIONS["cover"]
+        task_type, instruction = self._resolve_generate_music_task(
+            task_type=task_type,
+            audio_code_string=audio_code_string,
+            instruction=instruction,
+        )
 
         logger.info("[generate_music] Starting generation...")
         if progress:
             progress(0.51, desc="Preparing inputs...")
         logger.info("[generate_music] Preparing inputs...")
         
-        # Reset offload cost
-        self.current_offload_cost = 0.0
-
-        # Caption and lyrics are optional - can be empty
-        # Use provided batch_size or default
-        actual_batch_size = batch_size if batch_size is not None else self.batch_size
-        actual_batch_size = max(1, actual_batch_size)  # Ensure at least 1
-
-        # ---- Pre-inference VRAM guard ----
-        # Estimate whether the requested batch_size fits in free VRAM and
-        # auto-reduce if it does not.  This prevents OOM crashes at the cost
-        # of generating fewer samples.
-        actual_batch_size = self._vram_guard_reduce_batch(
-            actual_batch_size,
+        runtime = self._prepare_generate_music_runtime(
+            batch_size=batch_size,
             audio_duration=audio_duration,
+            repainting_end=repainting_end,
+            seed=seed,
+            use_random_seed=use_random_seed,
         )
-
-        actual_seed_list, seed_value_for_ui = self.prepare_seeds(actual_batch_size, seed, use_random_seed)
-        
-        # Convert special values to None
-        if audio_duration is not None and float(audio_duration) <= 0:
-            audio_duration = None
-        # if seed is not None and seed < 0:
-        #     seed = None
-        if repainting_end is not None and float(repainting_end) < 0:
-            repainting_end = None
+        actual_batch_size = runtime["actual_batch_size"]
+        actual_seed_list = runtime["actual_seed_list"]
+        seed_value_for_ui = runtime["seed_value_for_ui"]
+        audio_duration = runtime["audio_duration"]
+        repainting_end = runtime["repainting_end"]
             
         try:
-            # 1. Process reference audio
-            refer_audios = None
-            if reference_audio is not None:
-                logger.info("[generate_music] Processing reference audio...")
-                processed_ref_audio = self.process_reference_audio(reference_audio)
-                if processed_ref_audio is not None:
-                    # Convert to the format expected by the service: List[List[torch.Tensor]]
-                    # Each batch item has a list of reference audios
-                    refer_audios = [[processed_ref_audio] for _ in range(actual_batch_size)]
-                else:
-                    return {
-                        "audios": [],
-                        "status_message": (
-                            "Reference audio is invalid, unreadable, or silent. "
-                            "Please upload a valid audible audio file."
-                        ),
-                        "extra_outputs": {},
-                        "success": False,
-                        "error": "Invalid reference audio",
-                    }
-            else:
-                refer_audios = [[torch.zeros(2, 30*self.sample_rate)] for _ in range(actual_batch_size)]
-            
-            # 2. Process source audio
-            # text2music (Custom mode) never uses src_audio — it operates on
-            # LM-generated audio codes or user-provided LM Codes Hints only.
-            # If audio_code_string is provided, ignore src_audio and use codes instead.
-            processed_src_audio = None
-            if task_type == "text2music":
-                if src_audio is not None:
-                    logger.info("[generate_music] text2music task does not use src_audio, ignoring")
-            elif src_audio is not None:
-                # Check if audio codes are provided - if so, ignore src_audio
-                if _has_audio_codes(audio_code_string):
-                    logger.info("[generate_music] Audio codes provided, ignoring src_audio and using codes instead")
-                else:
-                    logger.info("[generate_music] Processing source audio...")
-                    processed_src_audio = self.process_src_audio(src_audio)
-                
-            # 3. Prepare batch data
-            captions_batch, instructions_batch, lyrics_batch, vocal_languages_batch, metas_batch = self.prepare_batch_data(
-                actual_batch_size,
-                processed_src_audio,
-                audio_duration,
-                captions,
-                lyrics,
-                vocal_language,
-                instruction,
-                bpm,
-                key_scale,
-                time_signature
+            refer_audios, processed_src_audio, audio_error = self._prepare_reference_and_source_audio(
+                reference_audio=reference_audio,
+                src_audio=src_audio,
+                audio_code_string=audio_code_string,
+                actual_batch_size=actual_batch_size,
+                task_type=task_type,
             )
-            
-            is_repaint_task, is_lego_task, is_cover_task, can_use_repainting = self.determine_task_type(task_type, audio_code_string)
-            
-            repainting_start_batch, repainting_end_batch, target_wavs_tensor = self.prepare_padding_info(
-                actual_batch_size,
-                processed_src_audio,
-                audio_duration,
-                repainting_start,
-                repainting_end,
-                is_repaint_task,
-                is_lego_task,
-                is_cover_task,
-                can_use_repainting
-            )
-            
-            # Prepare audio_code_hints - use if audio_code_string is provided
-            # This works for both text2music (auto-switched to cover) and cover tasks
-            audio_code_hints_batch = None
-            if _has_audio_codes(audio_code_string):
-                if isinstance(audio_code_string, list):
-                    audio_code_hints_batch = audio_code_string
-                else:
-                    audio_code_hints_batch = [audio_code_string] * actual_batch_size
+            if audio_error is not None:
+                return audio_error
 
-            should_return_intermediate = (task_type == "text2music")
-            progress_desc = f"Generating music (batch size: {actual_batch_size})..."
-            infer_steps_for_progress = len(timesteps) if timesteps else inference_steps
-            progress(0.52, desc=progress_desc)
-            stop_event = None
-            progress_thread = None
-            try:
-                stop_event, progress_thread = self._start_diffusion_progress_estimator(
-                    progress=progress,
-                    start=0.52,
-                    end=0.79,
-                    infer_steps=infer_steps_for_progress,
-                    batch_size=actual_batch_size,
-                    duration_sec=audio_duration if audio_duration and audio_duration > 0 else None,
-                    desc=progress_desc,
-                )
-                outputs = self.service_generate(
-                    captions=captions_batch,
-                    lyrics=lyrics_batch,
-                    metas=metas_batch,  # Pass as dict, service will convert to string
-                    vocal_languages=vocal_languages_batch,
-                    refer_audios=refer_audios,  # Already in List[List[torch.Tensor]] format
-                    target_wavs=target_wavs_tensor,  # Shape: [batch_size, 2, frames]
-                    infer_steps=inference_steps,
-                    guidance_scale=guidance_scale,
-                    seed=actual_seed_list,  # Pass list of seeds, one per batch item
-                    repainting_start=repainting_start_batch,
-                    repainting_end=repainting_end_batch,
-                    instructions=instructions_batch,  # Pass instructions to service
-                    audio_cover_strength=audio_cover_strength,  # Pass audio cover strength
-                    cover_noise_strength=cover_noise_strength,  # Pass cover noise strength
-                    use_adg=use_adg,  # Pass use_adg parameter
-                    cfg_interval_start=cfg_interval_start,  # Pass CFG interval start
-                    cfg_interval_end=cfg_interval_end,  # Pass CFG interval end
-                    shift=shift,  # Pass shift parameter
-                    infer_method=infer_method,  # Pass infer method (ode or sde)
-                    audio_code_hints=audio_code_hints_batch,  # Pass audio code hints as list
-                    return_intermediate=should_return_intermediate,
-                    timesteps=timesteps,  # Pass custom timesteps if provided
-                )
-            finally:
-                if stop_event is not None:
-                    stop_event.set()
-                if progress_thread is not None:
-                    progress_thread.join(timeout=1.0)
+            service_inputs = self._prepare_generate_music_service_inputs(
+                actual_batch_size=actual_batch_size,
+                processed_src_audio=processed_src_audio,
+                audio_duration=audio_duration,
+                captions=captions,
+                lyrics=lyrics,
+                vocal_language=vocal_language,
+                instruction=instruction,
+                bpm=bpm,
+                key_scale=key_scale,
+                time_signature=time_signature,
+                task_type=task_type,
+                audio_code_string=audio_code_string,
+                repainting_start=repainting_start,
+                repainting_end=repainting_end,
+            )
+            service_run = self._run_generate_music_service_with_progress(
+                progress=progress,
+                actual_batch_size=actual_batch_size,
+                audio_duration=audio_duration,
+                inference_steps=inference_steps,
+                timesteps=timesteps,
+                service_inputs=service_inputs,
+                refer_audios=refer_audios,
+                guidance_scale=guidance_scale,
+                actual_seed_list=actual_seed_list,
+                audio_cover_strength=audio_cover_strength,
+                cover_noise_strength=cover_noise_strength,
+                use_adg=use_adg,
+                cfg_interval_start=cfg_interval_start,
+                cfg_interval_end=cfg_interval_end,
+                shift=shift,
+                infer_method=infer_method,
+            )
+            outputs = service_run["outputs"]
+            infer_steps_for_progress = service_run["infer_steps_for_progress"]
             
             logger.info("[generate_music] Model generation completed. Decoding latents...")
             pred_latents = outputs["target_latents"]  # [batch, latent_length, latent_dim]
@@ -2031,3 +1928,4 @@ class AceStepHandler(
                 "success": False,
                 "error": str(e),
             }
+
