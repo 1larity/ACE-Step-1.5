@@ -1,6 +1,6 @@
 """Execution helper for ``generate_music`` service invocation with progress tracking."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 
 class GenerateMusicExecuteMixin:
@@ -8,15 +8,15 @@ class GenerateMusicExecuteMixin:
 
     def _run_generate_music_service_with_progress(
         self,
-        progress,
+        progress: Any,
         actual_batch_size: int,
         audio_duration: Optional[float],
         inference_steps: int,
-        timesteps,
+        timesteps: Optional[Sequence[float]],
         service_inputs: Dict[str, Any],
-        refer_audios,
+        refer_audios: Optional[List[Any]],
         guidance_scale: float,
-        actual_seed_list,
+        actual_seed_list: Optional[List[int]],
         audio_cover_strength: float,
         cover_noise_strength: float,
         use_adg: bool,

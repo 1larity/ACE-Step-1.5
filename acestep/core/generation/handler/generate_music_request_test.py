@@ -95,6 +95,22 @@ class GenerateMusicRequestMixinTests(unittest.TestCase):
         self.assertIsNone(processed_src_audio)
         self.assertFalse(called["process_src_audio"])
 
+    def test_prepare_reference_and_source_audio_returns_error_for_invalid_source(self):
+        """Non-text2music source audio failure should return structured error payload."""
+        host = _Host()
+        host.process_src_audio = lambda _src: None
+        _, processed_src_audio, error = host._prepare_reference_and_source_audio(
+            reference_audio=None,
+            src_audio="bad.wav",
+            audio_code_string="",
+            actual_batch_size=1,
+            task_type="cover",
+        )
+        self.assertIsNone(processed_src_audio)
+        self.assertIsNotNone(error)
+        self.assertFalse(error["success"])
+        self.assertEqual(error["error"], "Invalid source audio")
+
 
 if __name__ == "__main__":
     unittest.main()

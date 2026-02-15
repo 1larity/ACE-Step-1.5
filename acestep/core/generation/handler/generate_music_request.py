@@ -1,6 +1,6 @@
 """Input and preflight helpers for ``generate_music`` orchestration."""
 
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 from loguru import logger
@@ -11,14 +11,18 @@ from acestep.constants import TASK_INSTRUCTIONS
 class GenerateMusicRequestMixin:
     """Prepare normalized ``generate_music`` inputs before service execution."""
 
-    def _resolve_generate_music_progress(self, progress):
+    def _resolve_generate_music_progress(
+        self,
+        progress: Optional[Callable[..., Any]],
+    ) -> Callable[..., Any]:
         """Return a callable progress callback, defaulting to no-op."""
         if progress is not None:
             return progress
 
-        def _progress(*args, **kwargs):
+        def _progress(*args: Any, **kwargs: Any) -> Any:
             """No-op callback for non-UI call sites."""
             _ = args, kwargs
+            return None
 
         return _progress
 
@@ -116,6 +120,18 @@ class GenerateMusicRequestMixin:
             else:
                 logger.info("[generate_music] Processing source audio...")
                 processed_src_audio = self.process_src_audio(src_audio)
+                if processed_src_audio is None:
+                    logger.error("[generate_music] Source audio is invalid after processing")
+                    return None, None, {
+                        "audios": [],
+                        "status_message": (
+                            "Source audio is invalid, unreadable, or silent. "
+                            "Please upload a valid audible audio file."
+                        ),
+                        "extra_outputs": {},
+                        "success": False,
+                        "error": "Invalid source audio",
+                    }
 
         return refer_audios, processed_src_audio, None
 
