@@ -61,6 +61,8 @@ from acestep.core.generation.handler import (
     ProgressMixin,
     PromptMixin,
     TaskUtilsMixin,
+    VaeEncodeChunksMixin,
+    VaeEncodeMixin,
     ServiceGenerateRequestMixin,
     ServiceGenerateExecuteMixin,
     ServiceGenerateOutputsMixin,
@@ -93,6 +95,8 @@ class AceStepHandler(
     ProgressMixin,
     PromptMixin,
     TaskUtilsMixin,
+    VaeEncodeChunksMixin,
+    VaeEncodeMixin,
     ServiceGenerateRequestMixin,
     ServiceGenerateExecuteMixin,
     ServiceGenerateOutputsMixin,
@@ -1387,209 +1391,6 @@ class AceStepHandler(
         logger.info(f"[_decode_on_cpu] CPU decode complete, result shape={result.shape}")
         return result  # result stays on CPU; fine for audio post-processing
     
-    def tiled_encode(self, audio, chunk_size=None, overlap=None, offload_latent_to_cpu=True):
-        """
-        Encode audio to latents using tiling to reduce VRAM usage.
-        Uses overlap-discard strategy to avoid boundary artifacts.
-        
-        Args:
-            audio: Audio tensor [Batch, Channels, Samples] or [Channels, Samples]
-            chunk_size: Size of audio chunk to process at once (in samples). 
-                       Default: 48000 * 30 = 1440000 (30 seconds at 48kHz)
-            overlap: Overlap size in audio samples. Default: 48000 * 2 = 96000 (2 seconds)
-            offload_latent_to_cpu: If True, offload encoded latents to CPU immediately to save VRAM
-            
-        Returns:
-            Latents tensor [Batch, Channels, T] (same format as vae.encode output)
-        """
-        # ---- MLX fast path (macOS Apple Silicon) ----
-        if self.use_mlx_vae and self.mlx_vae is not None:
-            # Handle 2D input [Channels, Samples]
-            input_was_2d = (audio.dim() == 2)
-            if input_was_2d:
-                audio = audio.unsqueeze(0)
-            try:
-                result = self._mlx_vae_encode_sample(audio)
-                if input_was_2d:
-                    result = result.squeeze(0)
-                return result
-            except Exception as exc:
-                logger.warning(
-                    f"[tiled_encode] MLX VAE encode failed ({type(exc).__name__}: {exc}), "
-                    f"falling back to PyTorch VAE..."
-                )
-                if input_was_2d:
-                    audio = audio.squeeze(0)
-
-        # ---- PyTorch path (CUDA / MPS / CPU) ----
-        # Default values for 48kHz audio, adaptive to GPU memory
-        if chunk_size is None:
-            gpu_memory = get_gpu_memory_gb()
-            if gpu_memory <= 0 and self.device == "mps":
-                mem_gb = self._get_effective_mps_memory_gb()
-                if mem_gb is not None:
-                    gpu_memory = mem_gb
-            if gpu_memory <= 8:
-                chunk_size = 48000 * 15  # 15 seconds for low VRAM
-            else:
-                chunk_size = 48000 * 30  # 30 seconds for normal VRAM
-        if overlap is None:
-            overlap = 48000 * 2  # 2 seconds overlap
-        
-        # Handle 2D input [Channels, Samples]
-        input_was_2d = (audio.dim() == 2)
-        if input_was_2d:
-            audio = audio.unsqueeze(0)
-        
-        B, C, S = audio.shape  # Batch, Channels, Samples
-        
-        # If short enough, encode directly
-        if S <= chunk_size:
-            vae_input = audio.to(self.device).to(self.vae.dtype)
-            with torch.inference_mode():
-                latents = self.vae.encode(vae_input).latent_dist.sample()
-            if input_was_2d:
-                latents = latents.squeeze(0)
-            return latents
-        
-        # Calculate stride (core size)
-        stride = chunk_size - 2 * overlap
-        if stride <= 0:
-            raise ValueError(f"chunk_size {chunk_size} must be > 2 * overlap {overlap}")
-        
-        num_steps = math.ceil(S / stride)
-        
-        if offload_latent_to_cpu:
-            result = self._tiled_encode_offload_cpu(audio, B, S, stride, overlap, num_steps, chunk_size)
-        else:
-            result = self._tiled_encode_gpu(audio, B, S, stride, overlap, num_steps, chunk_size)
-        
-        if input_was_2d:
-            result = result.squeeze(0)
-        
-        return result
-    
-    def _tiled_encode_gpu(self, audio, B, S, stride, overlap, num_steps, chunk_size):
-        """Standard tiled encode keeping all data on GPU."""
-        encoded_latent_list = []
-        downsample_factor = None
-        
-        for i in tqdm(range(num_steps), desc="Encoding audio chunks", disable=self.disable_tqdm):
-            # Core range in audio samples
-            core_start = i * stride
-            core_end = min(core_start + stride, S)
-            
-            # Window range (with overlap)
-            win_start = max(0, core_start - overlap)
-            win_end = min(S, core_end + overlap)
-            
-            # Extract chunk and move to GPU
-            audio_chunk = audio[:, :, win_start:win_end].to(self.device).to(self.vae.dtype)
-            
-            # Encode
-            with torch.inference_mode():
-                latent_chunk = self.vae.encode(audio_chunk).latent_dist.sample()
-            
-            # Determine downsample factor from the first chunk
-            if downsample_factor is None:
-                downsample_factor = audio_chunk.shape[-1] / latent_chunk.shape[-1]
-            
-            # Calculate trim amounts in latent frames
-            added_start = core_start - win_start  # audio samples
-            trim_start = int(round(added_start / downsample_factor))
-            
-            added_end = win_end - core_end  # audio samples
-            trim_end = int(round(added_end / downsample_factor))
-            
-            # Trim latent
-            latent_len = latent_chunk.shape[-1]
-            end_idx = latent_len - trim_end if trim_end > 0 else latent_len
-            
-            latent_core = latent_chunk[:, :, trim_start:end_idx]
-            encoded_latent_list.append(latent_core)
-            
-            del audio_chunk
-        
-        # Concatenate
-        final_latents = torch.cat(encoded_latent_list, dim=-1)
-        return final_latents
-    
-    def _tiled_encode_offload_cpu(self, audio, B, S, stride, overlap, num_steps, chunk_size):
-        """Optimized tiled encode that offloads latents to CPU immediately to save VRAM."""
-        # First pass: encode first chunk to get downsample_factor and latent channels
-        first_core_start = 0
-        first_core_end = min(stride, S)
-        first_win_start = 0
-        first_win_end = min(S, first_core_end + overlap)
-        
-        first_audio_chunk = audio[:, :, first_win_start:first_win_end].to(self.device).to(self.vae.dtype)
-        with torch.inference_mode():
-            first_latent_chunk = self.vae.encode(first_audio_chunk).latent_dist.sample()
-        
-        downsample_factor = first_audio_chunk.shape[-1] / first_latent_chunk.shape[-1]
-        latent_channels = first_latent_chunk.shape[1]
-        
-        # Calculate total latent length and pre-allocate CPU tensor
-        total_latent_length = int(round(S / downsample_factor))
-        final_latents = torch.zeros(B, latent_channels, total_latent_length, 
-                                   dtype=first_latent_chunk.dtype, device='cpu')
-        
-        # Process first chunk: trim and copy to CPU
-        first_added_end = first_win_end - first_core_end
-        first_trim_end = int(round(first_added_end / downsample_factor))
-        first_latent_len = first_latent_chunk.shape[-1]
-        first_end_idx = first_latent_len - first_trim_end if first_trim_end > 0 else first_latent_len
-        
-        first_latent_core = first_latent_chunk[:, :, :first_end_idx]
-        latent_write_pos = first_latent_core.shape[-1]
-        final_latents[:, :, :latent_write_pos] = first_latent_core.cpu()
-        
-        # Free GPU memory
-        del first_audio_chunk, first_latent_chunk, first_latent_core
-        
-        # Process remaining chunks
-        for i in tqdm(range(1, num_steps), desc="Encoding audio chunks", disable=self.disable_tqdm):
-            # Core range in audio samples
-            core_start = i * stride
-            core_end = min(core_start + stride, S)
-            
-            # Window range (with overlap)
-            win_start = max(0, core_start - overlap)
-            win_end = min(S, core_end + overlap)
-            
-            # Extract chunk and move to GPU
-            audio_chunk = audio[:, :, win_start:win_end].to(self.device).to(self.vae.dtype)
-            
-            # Encode on GPU
-            with torch.inference_mode():
-                latent_chunk = self.vae.encode(audio_chunk).latent_dist.sample()
-            
-            # Calculate trim amounts in latent frames
-            added_start = core_start - win_start  # audio samples
-            trim_start = int(round(added_start / downsample_factor))
-            
-            added_end = win_end - core_end  # audio samples
-            trim_end = int(round(added_end / downsample_factor))
-            
-            # Trim latent
-            latent_len = latent_chunk.shape[-1]
-            end_idx = latent_len - trim_end if trim_end > 0 else latent_len
-            
-            latent_core = latent_chunk[:, :, trim_start:end_idx]
-            
-            # Copy to pre-allocated CPU tensor
-            core_len = latent_core.shape[-1]
-            final_latents[:, :, latent_write_pos:latent_write_pos + core_len] = latent_core.cpu()
-            latent_write_pos += core_len
-            
-            # Free GPU memory immediately
-            del audio_chunk, latent_chunk, latent_core
-        
-        # Trim to actual length (in case of rounding differences)
-        final_latents = final_latents[:, :, :latent_write_pos]
-        
-        return final_latents
-
     def generate_music(
         self,
         captions: str,
