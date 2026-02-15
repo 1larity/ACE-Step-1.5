@@ -950,22 +950,23 @@ def validate_uploaded_audio_file(audio_value: Any, audio_role: str = "reference"
         audio_role: User-facing label context (for example, ``reference`` or ``source``).
 
     Returns:
-        Original audio value when valid, otherwise ``None`` to clear invalid input.
+        ``gr.skip()`` for valid files, or ``gr.update(value=None)`` to clear
+        invalid input after showing a warning toast.
     """
     audio_path = _extract_audio_path(audio_value)
     if not audio_path:
-        return audio_value
+        return gr.skip()
 
     try:
         soundfile.info(audio_path)
-        return audio_value
+        return gr.skip()
     except (OSError, RuntimeError, ValueError):
         role_label = "Reference" if audio_role == "reference" else "Source"
         gr.Warning(
             f"{role_label} audio format is invalid or unsupported. "
             "Please upload a valid audio file."
         )
-        return None
+        return gr.update(value=None)
 
 
 def update_audio_cover_strength_visibility(task_type_value, init_llm_checked, reference_audio=None):
