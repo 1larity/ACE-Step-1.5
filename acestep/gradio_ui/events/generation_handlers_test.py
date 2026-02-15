@@ -230,8 +230,10 @@ class GenerationHandlersTests(unittest.TestCase):
         info_mock.side_effect = RuntimeError("bad file")
         result = generation_handlers.validate_uploaded_audio_file("broken.bin", "source")
         self.assertEqual(result.get("value"), None)
+        expected_role = generation_handlers.t("generation.source_audio")
+        expected_message = generation_handlers.t("messages.audio_format_invalid", role=expected_role)
         warning_mock.assert_called_once_with(
-            "Source audio format is invalid or unsupported. Please upload a valid audio file."
+            expected_message
         )
 
 

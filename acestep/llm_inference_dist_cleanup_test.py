@@ -6,7 +6,7 @@ from unittest.mock import patch
 try:
     from acestep.llm_inference import LLMHandler
     _IMPORT_ERROR = None
-except Exception as exc:  # pragma: no cover - dependency guard
+except ImportError as exc:  # pragma: no cover - dependency guard
     LLMHandler = None
     _IMPORT_ERROR = exc
 

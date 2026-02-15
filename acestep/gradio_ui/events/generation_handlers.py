@@ -979,11 +979,12 @@ def validate_uploaded_audio_file(audio_value: Any, audio_role: str = "reference"
         soundfile.info(audio_path)
         return gr.skip()
     except (OSError, RuntimeError, ValueError):
-        role_label = "Reference" if audio_role == "reference" else "Source"
-        gr.Warning(
-            f"{role_label} audio format is invalid or unsupported. "
-            "Please upload a valid audio file."
+        role_label = (
+            t("generation.reference_audio")
+            if audio_role == "reference"
+            else t("generation.source_audio")
         )
+        gr.Warning(t("messages.audio_format_invalid", role=role_label))
         return gr.update(value=None)
 
 
