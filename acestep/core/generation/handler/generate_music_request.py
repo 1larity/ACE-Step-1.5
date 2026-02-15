@@ -85,8 +85,8 @@ class GenerateMusicRequestMixin:
 
     def _prepare_reference_and_source_audio(
         self,
-        reference_audio,
-        src_audio,
+        reference_audio: Optional[str],
+        src_audio: Optional[str],
         audio_code_string: Union[str, List[str]],
         actual_batch_size: int,
         task_type: str,
