@@ -9,7 +9,8 @@ import random
 import glob
 import re
 import gradio as gr
-from typing import Optional, List, Tuple
+import soundfile
+from typing import Any, Optional, List, Tuple
 from loguru import logger
 from acestep.constants import (
     TASK_TYPES_TURBO,
@@ -926,6 +927,45 @@ def _has_reference_audio(reference_audio) -> bool:
     if isinstance(reference_audio, (list, tuple)) and reference_audio:
         return bool(reference_audio[0])
     return False
+
+
+def _extract_audio_path(audio_value: Any) -> Optional[str]:
+    """Extract a filepath from Gradio audio values."""
+    if audio_value is None:
+        return None
+    if isinstance(audio_value, str):
+        return audio_value.strip() or None
+    if isinstance(audio_value, (list, tuple)) and audio_value:
+        first = audio_value[0]
+        if isinstance(first, str):
+            return first.strip() or None
+    return None
+
+
+def validate_uploaded_audio_file(audio_value: Any, audio_role: str = "reference") -> Any:
+    """Validate uploaded audio and show a toast for invalid/unsupported files.
+
+    Args:
+        audio_value: Gradio Audio component value (filepath or tuple form).
+        audio_role: User-facing label context (for example, ``reference`` or ``source``).
+
+    Returns:
+        Original audio value when valid, otherwise ``None`` to clear invalid input.
+    """
+    audio_path = _extract_audio_path(audio_value)
+    if not audio_path:
+        return audio_value
+
+    try:
+        soundfile.info(audio_path)
+        return audio_value
+    except (OSError, RuntimeError, ValueError):
+        role_label = "Reference" if audio_role == "reference" else "Source"
+        gr.Warning(
+            f"{role_label} audio format is invalid or unsupported. "
+            "Please upload a valid audio file."
+        )
+        return None
 
 
 def update_audio_cover_strength_visibility(task_type_value, init_llm_checked, reference_audio=None):

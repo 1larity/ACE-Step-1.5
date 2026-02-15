@@ -260,6 +260,13 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
                 generation_section["instruction_display_gen"],
             ]
         )
+
+    # Validate reference audio eagerly so users get immediate feedback on invalid files.
+    generation_section["reference_audio"].change(
+        fn=lambda reference_audio: gen_h.validate_uploaded_audio_file(reference_audio, "reference"),
+        inputs=[generation_section["reference_audio"]],
+        outputs=[generation_section["reference_audio"]],
+    )
     
     # ========== Sample/Transcribe Handlers ==========
     # Load random example from ./examples/text2music directory
@@ -472,6 +479,13 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         outputs=[generation_section["captions"]],
     )
     
+    # Validate source audio eagerly so users get immediate feedback on invalid files.
+    generation_section["src_audio"].change(
+        fn=lambda src_audio: gen_h.validate_uploaded_audio_file(src_audio, "source"),
+        inputs=[generation_section["src_audio"]],
+        outputs=[generation_section["src_audio"]],
+    )
+
     # ========== Extract/Lego Mode: Auto-fill audio_duration from src_audio ==========
     generation_section["src_audio"].change(
         fn=gen_h.handle_extract_src_audio_change,

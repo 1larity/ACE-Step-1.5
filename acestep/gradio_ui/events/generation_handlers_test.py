@@ -193,6 +193,47 @@ class GenerationHandlersTests(unittest.TestCase):
         self.assertEqual(batch_update["value"], 2)
         self.assertEqual(batch_update["maximum"], 8)
 
+    @patch("acestep.gradio_ui.events.generation_handlers.gr.Warning")
+    @patch("acestep.gradio_ui.events.generation_handlers.soundfile.info")
+    def test_validate_uploaded_audio_file_returns_none_for_invalid_file(
+        self,
+        info_mock,
+        warning_mock,
+    ):
+        """Invalid audio upload should emit warning toast and clear component value."""
+        info_mock.side_effect = RuntimeError("bad file")
+        result = generation_handlers.validate_uploaded_audio_file("broken.bin", "reference")
+        self.assertIsNone(result)
+        warning_mock.assert_called_once()
+
+    @patch("acestep.gradio_ui.events.generation_handlers.gr.Warning")
+    @patch("acestep.gradio_ui.events.generation_handlers.soundfile.info")
+    def test_validate_uploaded_audio_file_keeps_valid_file(
+        self,
+        info_mock,
+        warning_mock,
+    ):
+        """Valid audio upload should pass through unchanged without warning."""
+        result = generation_handlers.validate_uploaded_audio_file("ok.wav", "reference")
+        self.assertEqual(result, "ok.wav")
+        info_mock.assert_called_once_with("ok.wav")
+        warning_mock.assert_not_called()
+
+    @patch("acestep.gradio_ui.events.generation_handlers.gr.Warning")
+    @patch("acestep.gradio_ui.events.generation_handlers.soundfile.info")
+    def test_validate_uploaded_audio_file_shows_source_role_message(
+        self,
+        info_mock,
+        warning_mock,
+    ):
+        """Source-role validation should surface a source-specific toast message."""
+        info_mock.side_effect = RuntimeError("bad file")
+        result = generation_handlers.validate_uploaded_audio_file("broken.bin", "source")
+        self.assertIsNone(result)
+        warning_mock.assert_called_once_with(
+            "Source audio format is invalid or unsupported. Please upload a valid audio file."
+        )
+
 
 @unittest.skipIf(generation_handlers is None, f"generation_handlers import unavailable: {_IMPORT_ERROR}")
 class LoadMetadataLmCodesTests(unittest.TestCase):
