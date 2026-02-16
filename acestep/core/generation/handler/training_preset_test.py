@@ -89,6 +89,7 @@ class TrainingPresetMixinTests(unittest.TestCase):
             "offload_dit_to_cpu": False,
             "quantization": "int8_weight_only",
             "prefer_source": "huggingface",
+            "use_mlx_dit": False,
         }
         host._initialize_result = ("reinit ok", True)
 
@@ -101,6 +102,7 @@ class TrainingPresetMixinTests(unittest.TestCase):
         call = host._initialize_calls[0]
         self.assertIsNone(call["quantization"])
         self.assertEqual(call["prefer_source"], "huggingface")
+        self.assertFalse(call["use_mlx_dit"])
         self.assertEqual(call["config_path"], "acestep-v15-turbo")
 
     def test_switch_to_training_preset_returns_failure_on_reinit_error(self):
@@ -128,7 +130,7 @@ class TrainingPresetMixinTests(unittest.TestCase):
         self.assertIsNone(host._initialize_calls[0]["quantization"])
 
     def test_switch_to_training_preset_passes_none_when_prefer_source_absent(self):
-        """It forwards ``prefer_source=None`` when not present in cached init parameters."""
+        """It forwards ``prefer_source=None`` and default ``use_mlx_dit=True`` when missing."""
         host = _Host()
         host.quantization = "int8_weight_only"
         host.last_init_params = {
@@ -148,6 +150,7 @@ class TrainingPresetMixinTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(len(host._initialize_calls), 1)
         self.assertIsNone(host._initialize_calls[0]["prefer_source"])
+        self.assertTrue(host._initialize_calls[0]["use_mlx_dit"])
 
     def test_switch_to_training_preset_does_not_mutate_last_init_params(self):
         """It preserves cached init parameters while forcing quantization only in call args."""

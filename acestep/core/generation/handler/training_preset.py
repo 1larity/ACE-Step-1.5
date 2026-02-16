@@ -34,6 +34,7 @@ class TrainingPresetMixin:
             offload_dit_to_cpu=params["offload_dit_to_cpu"],
             quantization=None,
             prefer_source=params.get("prefer_source"),
+            use_mlx_dit=params.get("use_mlx_dit", True),
         )
         if ok:
             return f"Switched to training preset (quantization disabled).\n{status}", True
