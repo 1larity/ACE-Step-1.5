@@ -127,6 +127,51 @@ class TrainingPresetMixinTests(unittest.TestCase):
         self.assertEqual(len(host._initialize_calls), 1)
         self.assertIsNone(host._initialize_calls[0]["quantization"])
 
+    def test_switch_to_training_preset_passes_none_when_prefer_source_absent(self):
+        """It forwards ``prefer_source=None`` when not present in cached init parameters."""
+        host = _Host()
+        host.quantization = "int8_weight_only"
+        host.last_init_params = {
+            "project_root": "K:/fake_root",
+            "config_path": "acestep-v15-turbo",
+            "device": "cpu",
+            "use_flash_attention": False,
+            "compile_model": True,
+            "offload_to_cpu": False,
+            "offload_dit_to_cpu": False,
+            "quantization": "int8_weight_only",
+        }
+        host._initialize_result = ("ok", True)
+
+        _, ok = host.switch_to_training_preset()
+
+        self.assertTrue(ok)
+        self.assertEqual(len(host._initialize_calls), 1)
+        self.assertIsNone(host._initialize_calls[0]["prefer_source"])
+
+    def test_switch_to_training_preset_does_not_mutate_last_init_params(self):
+        """It preserves cached init parameters while forcing quantization only in call args."""
+        host = _Host()
+        host.quantization = "int8_weight_only"
+        host.last_init_params = {
+            "project_root": "K:/fake_root",
+            "config_path": "acestep-v15-turbo",
+            "device": "cpu",
+            "use_flash_attention": False,
+            "compile_model": True,
+            "offload_to_cpu": False,
+            "offload_dit_to_cpu": False,
+            "quantization": "int8_weight_only",
+            "prefer_source": "modelscope",
+        }
+        host._initialize_result = ("ok", True)
+
+        _, ok = host.switch_to_training_preset()
+
+        self.assertTrue(ok)
+        self.assertEqual(host.last_init_params["quantization"], "int8_weight_only")
+        self.assertIsNone(host._initialize_calls[0]["quantization"])
+
 
 if __name__ == "__main__":
     unittest.main()

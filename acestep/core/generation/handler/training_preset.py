@@ -7,7 +7,14 @@ class TrainingPresetMixin:
     """Helpers for switching runtime initialization to training-safe settings."""
 
     def switch_to_training_preset(self) -> Tuple[str, bool]:
-        """Reinitialize with quantization disabled using the last init parameters."""
+        """Reinitialize with quantization disabled using the last successful init parameters.
+
+        Returns:
+            Tuple[str, bool]:
+                - A human-readable status message for UI/API consumers.
+                - ``True`` when the preset is already safe or reinitialization succeeds,
+                  otherwise ``False``.
+        """
         if self.quantization is None:
             return "Already in training-safe preset (quantization disabled).", True
 
