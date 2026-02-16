@@ -5,6 +5,8 @@ from typing import Any, Optional, Tuple
 import torch
 from loguru import logger
 
+from acestep import gpu_config
+
 
 class InitServiceSetupMixin:
     """Device/runtime normalization and status helpers."""
@@ -13,39 +15,39 @@ class InitServiceSetupMixin:
         """Resolve a concrete runtime device, applying backend fallback rules."""
         device = requested_device
         if device == "auto":
-            if torch.cuda.is_available():
+            if gpu_config.is_cuda_available():
                 return "cuda"
-            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            if gpu_config.is_mps_available():
                 return "mps"
-            if hasattr(torch, "xpu") and torch.xpu.is_available():
+            if gpu_config.is_xpu_available():
                 return "xpu"
             return "cpu"
 
-        if device == "cuda" and not torch.cuda.is_available():
-            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        if device == "cuda" and not gpu_config.is_cuda_available():
+            if gpu_config.is_mps_available():
                 logger.warning("[initialize_service] CUDA requested but unavailable. Falling back to MPS.")
                 return "mps"
-            if hasattr(torch, "xpu") and torch.xpu.is_available():
+            if gpu_config.is_xpu_available():
                 logger.warning("[initialize_service] CUDA requested but unavailable. Falling back to XPU.")
                 return "xpu"
             logger.warning("[initialize_service] CUDA requested but unavailable. Falling back to CPU.")
             return "cpu"
 
-        if device == "mps" and not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
-            if torch.cuda.is_available():
+        if device == "mps" and not gpu_config.is_mps_available():
+            if gpu_config.is_cuda_available():
                 logger.warning("[initialize_service] MPS requested but unavailable. Falling back to CUDA.")
                 return "cuda"
-            if hasattr(torch, "xpu") and torch.xpu.is_available():
+            if gpu_config.is_xpu_available():
                 logger.warning("[initialize_service] MPS requested but unavailable. Falling back to XPU.")
                 return "xpu"
             logger.warning("[initialize_service] MPS requested but unavailable. Falling back to CPU.")
             return "cpu"
 
-        if device == "xpu" and not (hasattr(torch, "xpu") and torch.xpu.is_available()):
-            if torch.cuda.is_available():
+        if device == "xpu" and not gpu_config.is_xpu_available():
+            if gpu_config.is_cuda_available():
                 logger.warning("[initialize_service] XPU requested but unavailable. Falling back to CUDA.")
                 return "cuda"
-            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            if gpu_config.is_mps_available():
                 logger.warning("[initialize_service] XPU requested but unavailable. Falling back to MPS.")
                 return "mps"
             logger.warning("[initialize_service] XPU requested but unavailable. Falling back to CPU.")
@@ -162,8 +164,7 @@ class InitServiceSetupMixin:
         mlx_vae_status: str,
     ) -> str:
         """Format initialize_service status output for UI/API consumers."""
-        # Preserve legacy status glyph text for UI/API compatibility with existing clients.
-        status_msg = f"âœ… Model initialized successfully on {device}\n"
+        status_msg = f"[OK] Model initialized successfully on {device}\n"
         status_msg += f"Main model: {model_path}\n"
         status_msg += f"VAE: {vae_path}\n"
         status_msg += f"Text encoder: {text_encoder_path}\n"

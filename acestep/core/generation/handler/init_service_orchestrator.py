@@ -65,6 +65,12 @@ class InitServiceOrchestratorMixin:
                 prefer_source=prefer_source,
             )
             if precheck_failure is not None:
+                self.model = None
+                self.vae = None
+                self.text_encoder = None
+                self.text_tokenizer = None
+                self.config = None
+                self.silence_latent = None
                 return precheck_failure
 
             self._sync_model_code_if_needed(config_path, checkpoint_path)

@@ -318,6 +318,32 @@ class InitServiceMixinTests(unittest.TestCase):
         self.assertEqual(status, "download failed")
         self.assertFalse(ok)
 
+    def test_initialize_service_clears_stale_state_on_model_precheck_failure(self):
+        """It clears stale model attributes before returning a precheck failure."""
+        host = _Host(project_root="K:/fake_root", device="cpu")
+        host.model = object()
+        host.vae = object()
+        host.text_encoder = object()
+        host.text_tokenizer = object()
+        host.config = object()
+        host.silence_latent = object()
+
+        with patch.object(host, "_ensure_models_present", return_value=("download failed", False)):
+            status, ok = host.initialize_service(
+                project_root="K:/fake_root",
+                config_path="acestep-v15-turbo",
+                device="cpu",
+            )
+
+        self.assertEqual(status, "download failed")
+        self.assertFalse(ok)
+        self.assertIsNone(host.model)
+        self.assertIsNone(host.vae)
+        self.assertIsNone(host.text_encoder)
+        self.assertIsNone(host.text_tokenizer)
+        self.assertIsNone(host.config)
+        self.assertIsNone(host.silence_latent)
+
     def test_initialize_service_uses_provided_project_root_for_checkpoints(self):
         """It builds checkpoint paths from the provided project_root when truthy."""
         host = _Host(project_root="K:/fallback_root", device="cpu")
