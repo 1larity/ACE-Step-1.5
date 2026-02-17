@@ -1,5 +1,4 @@
 """Unit tests for extracted native MLX VAE encode/decode mixins."""
-
 import importlib.util
 import sys
 import types
@@ -9,8 +8,6 @@ from pathlib import Path
 import numpy as np
 import torch
 from unittest.mock import patch
-
-
 def _load_handler_module(module_filename: str, module_name: str):
     """Load a handler mixin module directly from disk for isolated tests."""
     repo_root = Path(__file__).resolve().parents[4]
@@ -34,8 +31,6 @@ def _load_handler_module(module_filename: str, module_name: str):
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
-
-
 MLX_VAE_DECODE_NATIVE_MODULE = _load_handler_module(
     "mlx_vae_decode_native.py",
     "acestep.core.generation.handler.mlx_vae_decode_native",
