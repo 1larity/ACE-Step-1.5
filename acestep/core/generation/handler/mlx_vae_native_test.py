@@ -101,7 +101,9 @@ class MlxVaeNativeMixinTests(unittest.TestCase):
         fake_mlx_pkg = types.ModuleType("mlx")
         fake_mlx_pkg.__path__ = []
         z_nlc = np.ones((1, 64, 1), dtype=np.float32)
-        decode_fn = lambda chunk: np.repeat(chunk, 2, axis=1)
+        def decode_fn(chunk):
+            """Expand latent time axis by factor two for decode test behavior."""
+            return np.repeat(chunk, 2, axis=1)
         with patch.dict(sys.modules, {"mlx": fake_mlx_pkg, "mlx.core": fake_mx_core}):
             out = host._mlx_decode_single(z_nlc, decode_fn=decode_fn)
         self.assertEqual(tuple(out.shape), (1, 128, 1))
@@ -113,7 +115,9 @@ class MlxVaeNativeMixinTests(unittest.TestCase):
         fake_mlx_pkg = types.ModuleType("mlx")
         fake_mlx_pkg.__path__ = []
         z_nlc = np.ones((1, 2200, 1), dtype=np.float32)
-        decode_fn = lambda chunk: np.repeat(chunk, 2, axis=1)
+        def decode_fn(chunk):
+            """Expand latent time axis by factor two for tiled decode test behavior."""
+            return np.repeat(chunk, 2, axis=1)
         with patch.dict(sys.modules, {"mlx": fake_mlx_pkg, "mlx.core": fake_mx_core}):
             out = host._mlx_decode_single(z_nlc, decode_fn=decode_fn)
         self.assertEqual(tuple(out.shape), (1, 4400, 1))

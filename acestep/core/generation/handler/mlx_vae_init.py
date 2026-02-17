@@ -53,11 +53,13 @@ class MlxVaeInitMixin:
                     logger.warning(f"[MLX-VAE] Float16 conversion failed ({exc}); using float32.")
                     vae_dtype = mx.float32
 
+            compiled = True
             try:
                 self._mlx_compiled_decode = mx.compile(mlx_vae.decode)
                 self._mlx_compiled_encode_sample = mx.compile(mlx_vae.encode_and_sample)
                 logger.info("[MLX-VAE] Decode/encode compiled with mx.compile().")
             except Exception as exc:
+                compiled = False
                 logger.warning(f"[MLX-VAE] mx.compile() failed ({exc}); using uncompiled path.")
                 self._mlx_compiled_decode = mlx_vae.decode
                 self._mlx_compiled_encode_sample = mlx_vae.encode_and_sample
@@ -66,7 +68,7 @@ class MlxVaeInitMixin:
             self.use_mlx_vae = True
             self._mlx_vae_dtype = vae_dtype
             logger.info(
-                f"[MLX-VAE] Native MLX VAE initialized (dtype={vae_dtype}, compiled=True)."
+                f"[MLX-VAE] Native MLX VAE initialized (dtype={vae_dtype}, compiled={compiled})."
             )
             return True
         except Exception as exc:
