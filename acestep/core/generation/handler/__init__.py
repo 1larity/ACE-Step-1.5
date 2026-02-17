@@ -23,6 +23,7 @@ from .progress import ProgressMixin
 from .service_generate_execute import ServiceGenerateExecuteMixin
 from .service_generate_outputs import ServiceGenerateOutputsMixin
 from .service_generate_request import ServiceGenerateRequestMixin
+from .service_generate import ServiceGenerateMixin
 from .task_utils import TaskUtilsMixin
 from .training_preset import TrainingPresetMixin
 from .vae_decode import VaeDecodeMixin
@@ -52,6 +53,7 @@ __all__ = [
     "PromptMixin",
     "ProgressMixin",
     "ServiceGenerateExecuteMixin",
+    "ServiceGenerateMixin",
     "ServiceGenerateOutputsMixin",
     "ServiceGenerateRequestMixin",
     "TaskUtilsMixin",
