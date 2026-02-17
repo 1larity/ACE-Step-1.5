@@ -74,7 +74,7 @@ class MlxDitInitMixinTests(unittest.TestCase):
         fake_dit_model.MLXDiTDecoder = type(
             "FakeDecoder",
             (),
-            {"from_config": classmethod(lambda cls, _cfg: object())},
+            {"from_config": classmethod(lambda _cls, _cfg: object())},
         )
         fake_dit_convert = types.ModuleType("acestep.models.mlx.dit_convert")
         fake_dit_convert.convert_and_load = Mock()

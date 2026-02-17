@@ -107,6 +107,33 @@ class GenerateMusicPayloadMixinTests(unittest.TestCase):
         self.assertEqual(payload["extra_outputs"]["pred_latents"].device.type, "cpu")
         self.assertEqual(progress_calls[0][0], 0.99)
 
+    def test_build_success_payload_handles_missing_optional_outputs_without_progress(self):
+        """It handles absent optional output keys and no progress callback."""
+        host = _Host()
+        outputs = {}
+        pred_wavs = torch.ones(1, 2, 8)
+        pred_latents_cpu = torch.ones(1, 4, 3)
+        time_costs = {"total_time_cost": 2.0}
+
+        payload = host._build_generate_music_success_payload(
+            outputs=outputs,
+            pred_wavs=pred_wavs,
+            pred_latents_cpu=pred_latents_cpu,
+            time_costs=time_costs,
+            seed_value_for_ui=11,
+            actual_batch_size=1,
+            progress=None,
+        )
+
+        self.assertTrue(payload["success"])
+        self.assertIsNone(payload["error"])
+        self.assertEqual(payload["status_message"], "Generation completed successfully!")
+        self.assertEqual(payload["extra_outputs"]["spans"], [])
+        self.assertIsNone(payload["extra_outputs"]["encoder_hidden_states"])
+        self.assertIsNone(payload["extra_outputs"]["encoder_attention_mask"])
+        self.assertIsNone(payload["extra_outputs"]["context_latents"])
+        self.assertEqual(payload["extra_outputs"]["pred_latents"].device.type, "cpu")
+
 
 if __name__ == "__main__":
     unittest.main()

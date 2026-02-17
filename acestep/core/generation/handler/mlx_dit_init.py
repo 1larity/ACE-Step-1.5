@@ -35,7 +35,7 @@ class MlxDitInitMixin:
                 f"(mx.compile={compile_model})."
             )
             return True
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning(f"[MLX-DiT] Failed to initialize MLX decoder (non-fatal): {exc}")
             self.mlx_decoder = None
             self.use_mlx_dit = False

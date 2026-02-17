@@ -125,7 +125,7 @@ class MlxVaeInitMixinTests(unittest.TestCase):
         fake_mlx_pkg = types.ModuleType("mlx")
         fake_mlx_pkg.__path__ = []
         fake_utils = types.ModuleType("mlx.utils")
-        fake_utils.tree_map = lambda fn, params: params
+        fake_utils.tree_map = lambda _fn, params: params
         with patch.dict(
             sys.modules,
             {
@@ -156,7 +156,7 @@ class MlxVaeInitMixinTests(unittest.TestCase):
         fake_mlx_pkg = types.ModuleType("mlx")
         fake_mlx_pkg.__path__ = []
         fake_utils = types.ModuleType("mlx.utils")
-        fake_utils.tree_map = lambda fn, params: params
+        fake_utils.tree_map = lambda _fn, params: params
         with patch.dict(
             sys.modules,
             {
