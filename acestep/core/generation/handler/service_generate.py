@@ -1,4 +1,9 @@
-"""Service-generate orchestration entrypoint for handler decomposition."""
+"""Service-generate orchestration entrypoint for handler decomposition.
+
+This module provides the top-level generation flow used by service callers.
+It coordinates request normalization, batch preparation, diffusion execution,
+and output attachment without owning model internals.
+"""
 
 from typing import Any, Dict, List, Optional, Union
 
@@ -6,7 +11,11 @@ import torch
 
 
 class ServiceGenerateMixin:
-    """Orchestrate service-level latent generation from normalized request inputs."""
+    """Run the high-level service-generation pipeline over prepared helper APIs.
+
+    Implementing hosts are expected to provide request-normalization, batch
+    preparation, diffusion, and output-attachment helper methods.
+    """
 
     @torch.inference_mode()
     def service_generate(
@@ -35,8 +44,41 @@ class ServiceGenerateMixin:
         infer_method: str = "ode",
         timesteps: Optional[List[float]] = None,
     ) -> Dict[str, Any]:
-        """Generate music latents from text/audio conditioning inputs."""
-        _ = return_intermediate
+        """Generate music latents and metadata from text/audio conditioning inputs.
+
+        Args:
+            captions: Caption string(s) describing the target generation.
+            lyrics: Lyric string(s) aligned with each requested sample.
+            keys: Optional sample identifiers.
+            target_wavs: Optional target audio tensor for repaint/cover flows.
+            refer_audios: Optional nested reference-audio tensors for style conditioning.
+            metas: Optional metadata payload(s) for each sample.
+            vocal_languages: Optional per-sample vocal language code(s).
+            infer_steps: Number of diffusion steps to run.
+            guidance_scale: CFG guidance strength.
+            seed: Optional scalar or per-sample seed list.
+            return_intermediate: Whether to include intermediate tensors in outputs.
+            repainting_start: Optional repaint start time(s) in seconds.
+            repainting_end: Optional repaint end time(s) in seconds.
+            instructions: Optional per-sample instruction string(s).
+            audio_cover_strength: Cover blend strength.
+            cover_noise_strength: Cover noise blend strength.
+            use_adg: Whether adaptive diffusion guidance is enabled.
+            cfg_interval_start: CFG schedule start ratio.
+            cfg_interval_end: CFG schedule end ratio.
+            shift: Diffusion shift parameter.
+            audio_code_hints: Optional serialized audio-code hints.
+            infer_method: Diffusion inference method selector.
+            timesteps: Optional explicit diffusion timestep sequence.
+
+        Returns:
+            Dict[str, Any]: Service output payload containing generated latents,
+            timing fields, and optionally intermediate conditioning tensors.
+
+        Raises:
+            Exception: Propagates exceptions raised by downstream helper methods
+                (e.g., normalization, diffusion execution, output assembly).
+        """
         normalized = self._normalize_service_generate_inputs(
             captions=captions,
             lyrics=lyrics,
@@ -49,6 +91,7 @@ class ServiceGenerateMixin:
             audio_code_hints=audio_code_hints,
             infer_steps=infer_steps,
             seed=seed,
+            return_intermediate=return_intermediate,
         )
         batch = self._prepare_batch(
             captions=normalized["captions"],
@@ -99,4 +142,5 @@ class ServiceGenerateMixin:
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_attention_mask,
             context_latents=context_latents,
+            return_intermediate=normalized["return_intermediate"],
         )
