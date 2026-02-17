@@ -1,5 +1,4 @@
 """Unit tests for extracted MLX VAE initialization mixin."""
-
 import importlib.util
 import os
 import sys
@@ -7,10 +6,17 @@ import types
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
+def _load_handler_module(filename: str, module_name: str) -> types.ModuleType:
+    """Load a handler mixin module for isolated tests.
 
-
-def _load_handler_module(filename: str, module_name: str):
-    """Load handler mixin module directly from file path."""
+    Args:
+        filename: Module filename in the current test directory.
+        module_name: Fully-qualified module name used for import execution.
+    Returns:
+        Loaded module object.
+    Raises:
+        FileNotFoundError, ImportError, SyntaxError: On module load failures.
+    """
     repo_root = Path(__file__).resolve().parents[4]
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
@@ -20,27 +26,32 @@ def _load_handler_module(filename: str, module_name: str):
         "acestep.core.generation": repo_root / "acestep" / "core" / "generation",
         "acestep.core.generation.handler": repo_root / "acestep" / "core" / "generation" / "handler",
     }
-    for package_name, package_path in package_paths.items():
-        if package_name in sys.modules:
-            continue
-        package_module = types.ModuleType(package_name)
-        package_module.__path__ = [str(package_path)]
-        sys.modules[package_name] = package_module
-    module_path = Path(__file__).with_name(filename)
-    spec = importlib.util.spec_from_file_location(module_name, module_path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
-
-
+    previous_modules = {name: sys.modules.get(name) for name in package_paths}
+    try:
+        for package_name, package_path in package_paths.items():
+            if package_name in sys.modules:
+                continue
+            package_module = types.ModuleType(package_name)
+            package_module.__path__ = [str(package_path)]
+            sys.modules[package_name] = package_module
+        module_path = Path(__file__).with_name(filename)
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Unable to load module spec for {module_name}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        for package_name, previous in previous_modules.items():
+            if previous is None:
+                sys.modules.pop(package_name, None)
+            else:
+                sys.modules[package_name] = previous
 MLX_VAE_INIT_MODULE = _load_handler_module(
     "mlx_vae_init.py",
     "acestep.core.generation.handler.mlx_vae_init",
 )
 MlxVaeInitMixin = MLX_VAE_INIT_MODULE.MlxVaeInitMixin
-
-
 class _VaeHost(MlxVaeInitMixin):
     """Minimal host exposing VAE init state used by tests."""
 
@@ -50,8 +61,6 @@ class _VaeHost(MlxVaeInitMixin):
         self.mlx_vae = None
         self.use_mlx_vae = False
         self._mlx_vae_dtype = None
-
-
 class _FakeMlxVae:
     """Simple fake MLX VAE object with decode/encode callables."""
 
@@ -75,10 +84,19 @@ class _FakeMlxVae:
     def parameters(self):
         """Return placeholder params tree."""
         return {}
+def _build_fake_mx_core(raise_compile: bool) -> tuple[types.ModuleType, dict[str, int]]:
+    """Build fake ``mlx.core`` and compile-call tracking for tests.
 
+    Args:
+        raise_compile: Whether inner ``_compile`` raises ``CompileError``.
+    Returns:
+        ``(fake_mx_core, calls)`` where ``calls`` tracks ``_compile`` count.
+    Raises:
+        CompileError: Raised by ``_compile`` when ``raise_compile`` is True.
+    """
+    class CompileError(RuntimeError):
+        """Raised when fake MLX compile is configured to fail."""
 
-def _build_fake_mx_core(raise_compile: bool):
-    """Build fake ``mlx.core`` module with optional compile failure."""
     fake_mx_core = types.ModuleType("mlx.core")
     fake_mx_core.float16 = "float16"
     fake_mx_core.float32 = "float32"
@@ -92,13 +110,11 @@ def _build_fake_mx_core(raise_compile: bool):
         """Track compile invocations and optionally simulate compile failure."""
         calls["compile"] += 1
         if raise_compile:
-            raise RuntimeError("compile failed")
+            raise CompileError("compile failed")
         return fn
 
     fake_mx_core.compile = _compile
     return fake_mx_core, calls
-
-
 class MlxVaeInitMixinTests(unittest.TestCase):
     """Behavior tests for extracted ``MlxVaeInitMixin``."""
 
@@ -171,7 +187,5 @@ class MlxVaeInitMixinTests(unittest.TestCase):
             self.assertTrue(host._init_mlx_vae())
         self.assertEqual(host._mlx_compiled_decode("x"), host.mlx_vae.decode("x"))
         self.assertEqual(host._mlx_compiled_encode_sample("x"), host.mlx_vae.encode_and_sample("x"))
-
-
 if __name__ == "__main__":
     unittest.main()
