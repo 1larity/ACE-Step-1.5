@@ -131,6 +131,7 @@ class GenerateMusicDecodeMixin:
                 )
                 using_mlx_vae = self.use_mlx_vae and self.mlx_vae is not None
                 vae_cpu = False
+                vae_device = None
                 if not using_mlx_vae:
                     vae_cpu = os.environ.get("ACESTEP_VAE_ON_CPU", "0").lower() in ("1", "true", "yes")
                     if not vae_cpu:
@@ -157,26 +158,30 @@ class GenerateMusicDecodeMixin:
                         self.vae = self.vae.cpu()
                         pred_latents_for_decode = pred_latents_for_decode.cpu()
                         self._empty_cache()
-                if use_tiled_decode:
-                    logger.info("[generate_music] Using tiled VAE decode to reduce VRAM usage...")
-                    pred_wavs = self.tiled_decode(pred_latents_for_decode)
-                elif using_mlx_vae:
-                    try:
-                        pred_wavs = self._mlx_vae_decode(pred_latents_for_decode)
-                    except Exception as exc:
-                        logger.warning(
-                            f"[generate_music] MLX direct decode failed ({exc}), falling back to PyTorch"
-                        )
+                try:
+                    if use_tiled_decode:
+                        logger.info("[generate_music] Using tiled VAE decode to reduce VRAM usage...")
+                        pred_wavs = self.tiled_decode(pred_latents_for_decode)
+                    elif using_mlx_vae:
+                        try:
+                            pred_wavs = self._mlx_vae_decode(pred_latents_for_decode)
+                        except Exception as exc:
+                            logger.warning(
+                                f"[generate_music] MLX direct decode failed ({exc}), falling back to PyTorch"
+                            )
+                            decoder_output = self.vae.decode(pred_latents_for_decode)
+                            pred_wavs = decoder_output.sample
+                            del decoder_output
+                    else:
                         decoder_output = self.vae.decode(pred_latents_for_decode)
                         pred_wavs = decoder_output.sample
                         del decoder_output
-                else:
-                    decoder_output = self.vae.decode(pred_latents_for_decode)
-                    pred_wavs = decoder_output.sample
-                    del decoder_output
-                if vae_cpu:
-                    logger.info("[generate_music] VAE decode on CPU complete, restoring to GPU...")
-                    self.vae = self.vae.to(vae_device)
+                finally:
+                    if vae_cpu and vae_device is not None:
+                        logger.info("[generate_music] Restoring VAE to original device after CPU decode path...")
+                        self.vae = self.vae.to(vae_device)
+                        pred_latents_for_decode = pred_latents_for_decode.to(vae_device)
+                    self._empty_cache()
                 logger.debug(
                     "[generate_music] After VAE decode: "
                     f"allocated={self._memory_allocated()/1024**3:.2f}GB, "

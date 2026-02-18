@@ -191,6 +191,65 @@ class GenerateMusicDecodeMixinTests(unittest.TestCase):
         self.assertAlmostEqual(updated_costs["offload_time_cost"], 0.25, places=6)
         self.assertEqual(host.progress_calls[0][0], 0.8)
 
+    def test_decode_pred_latents_restores_vae_device_on_decode_error(self):
+        """It restores VAE device in the CPU-offload path even when decode raises."""
+
+        class _FailingVae(_FakeVae):
+            """VAE double that raises during decode and records transfer calls."""
+
+            def __init__(self):
+                """Initialize transfer call trackers for restoration assertions."""
+                super().__init__()
+                self.cpu_calls = 0
+                self.to_calls = []
+
+            def decode(self, latents: torch.Tensor):
+                """Raise decode error to exercise restoration in finally branch."""
+                _ = latents
+                raise RuntimeError("decode failed")
+
+            def cpu(self):
+                """Record explicit CPU transfer and return self."""
+                self.cpu_calls += 1
+                return self
+
+            def to(self, *args, **kwargs):
+                """Record restore transfer target and return self."""
+                self.to_calls.append((args, kwargs))
+                return self
+
+        class _FailingHost(_Host):
+            """Host variant that forces non-MLX VAE decode and tracks cache clears."""
+
+            def __init__(self):
+                """Set non-MLX state so CPU offload path is exercised deterministically."""
+                super().__init__()
+                self.use_mlx_vae = False
+                self.mlx_vae = None
+                self.vae = _FailingVae()
+                self.empty_cache_calls = 0
+
+            def _empty_cache(self):
+                """Count cache-clear calls to verify finally cleanup runs."""
+                self.empty_cache_calls += 1
+
+        host = _FailingHost()
+        pred_latents = torch.ones(1, 4, 3)
+        time_costs = {"total_time_cost": 1.0}
+
+        with patch.dict(GENERATE_MUSIC_DECODE_MODULE.os.environ, {"ACESTEP_VAE_ON_CPU": "1"}, clear=False):
+            with self.assertRaisesRegex(RuntimeError, "decode failed"):
+                host._decode_generate_music_pred_latents(
+                    pred_latents=pred_latents,
+                    progress=None,
+                    use_tiled_decode=False,
+                    time_costs=time_costs,
+                )
+
+        self.assertEqual(host.vae.cpu_calls, 1)
+        self.assertEqual(len(host.vae.to_calls), 1)
+        self.assertGreaterEqual(host.empty_cache_calls, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
