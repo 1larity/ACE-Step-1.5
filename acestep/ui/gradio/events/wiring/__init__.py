@@ -11,6 +11,8 @@ from .context import (
     build_auto_checkbox_outputs,
     build_mode_ui_outputs,
 )
+from .generation_metadata_wiring import register_generation_metadata_handlers
+from .generation_service_wiring import register_generation_service_handlers
 
 __all__ = [
     "GenerationWiringContext",
@@ -18,4 +20,6 @@ __all__ = [
     "build_auto_checkbox_inputs",
     "build_auto_checkbox_outputs",
     "build_mode_ui_outputs",
+    "register_generation_metadata_handlers",
+    "register_generation_service_handlers",
 ]
