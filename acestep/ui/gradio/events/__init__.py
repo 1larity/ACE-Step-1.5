@@ -15,6 +15,7 @@ from .wiring import (
     TrainingWiringContext,
     build_mode_ui_outputs,
     register_generation_metadata_handlers,
+    register_generation_mode_handlers,
     register_generation_service_handlers,
 )
 from acestep.ui.gradio.i18n import t
@@ -42,100 +43,13 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         auto_checkbox_outputs=auto_checkbox_outputs,
     )
 
-    # ========== Generation Mode Change ==========
-    generation_section["generation_mode"].change(
-        fn=lambda mode, prev: gen_h.handle_generation_mode_change(mode, prev, llm_handler),
-        inputs=[
-            generation_section["generation_mode"],
-            generation_section["previous_generation_mode"],
-        ],
-        outputs=mode_ui_outputs
-    )
-    
-    # ========== Extract Mode: Auto-fill caption from track_name ==========
-    generation_section["track_name"].change(
-        fn=gen_h.handle_extract_track_name_change,
-        inputs=[
-            generation_section["track_name"],
-            generation_section["generation_mode"],
-        ],
-        outputs=[generation_section["captions"]],
-    )
-    
-    # Validate source audio eagerly so users get immediate feedback on invalid files.
-    generation_section["src_audio"].change(
-        fn=lambda src_audio: gen_h.validate_uploaded_audio_file(src_audio, "source"),
-        inputs=[generation_section["src_audio"]],
-        outputs=[generation_section["src_audio"]],
+    register_generation_mode_handlers(
+        wiring_context,
+        mode_ui_outputs=mode_ui_outputs,
+        auto_checkbox_inputs=auto_checkbox_inputs,
+        auto_checkbox_outputs=auto_checkbox_outputs,
     )
 
-    # ========== Extract/Lego Mode: Auto-fill audio_duration from src_audio ==========
-    generation_section["src_audio"].change(
-        fn=gen_h.handle_extract_src_audio_change,
-        inputs=[
-            generation_section["src_audio"],
-            generation_section["generation_mode"],
-        ],
-        outputs=[generation_section["audio_duration"]],
-    )
-    
-    # ========== Simple Mode Instrumental Checkbox ==========
-    # When instrumental is checked, disable vocal language and set to ["unknown"]
-    generation_section["simple_instrumental_checkbox"].change(
-        fn=gen_h.handle_simple_instrumental_change,
-        inputs=[generation_section["simple_instrumental_checkbox"]],
-        outputs=[generation_section["simple_vocal_language"]]
-    )
-    
-    # ========== Random Description Button ==========
-    generation_section["random_desc_btn"].click(
-        fn=gen_h.load_random_simple_description,
-        inputs=[],
-        outputs=[
-            generation_section["simple_query_input"],
-            generation_section["simple_instrumental_checkbox"],
-            generation_section["simple_vocal_language"],
-        ]
-    )
-    
-    # ========== Create Sample Button (Simple Mode) ==========
-    # Note: cfg_scale and negative_prompt are not supported in create_sample mode
-    generation_section["create_sample_btn"].click(
-        fn=lambda query, instrumental, vocal_lang, temp, top_k, top_p, debug: gen_h.handle_create_sample(
-            llm_handler, query, instrumental, vocal_lang, temp, top_k, top_p, debug
-        ),
-        inputs=[
-            generation_section["simple_query_input"],
-            generation_section["simple_instrumental_checkbox"],
-            generation_section["simple_vocal_language"],
-            generation_section["lm_temperature"],
-            generation_section["lm_top_k"],
-            generation_section["lm_top_p"],
-            generation_section["constrained_decoding_debug"],
-        ],
-        outputs=[
-            generation_section["captions"],
-            generation_section["lyrics"],
-            generation_section["bpm"],
-            generation_section["audio_duration"],
-            generation_section["key_scale"],
-            generation_section["vocal_language"],
-            generation_section["simple_vocal_language"],
-            generation_section["time_signature"],
-            generation_section["instrumental_checkbox"],
-            generation_section["generate_btn"],
-            generation_section["simple_sample_created"],
-            generation_section["think_checkbox"],
-            results_section["is_format_caption_state"],
-            results_section["status_output"],
-            generation_section["generation_mode"],
-        ]
-    ).then(
-        fn=gen_h.uncheck_auto_for_populated_fields,
-        inputs=auto_checkbox_inputs,
-        outputs=auto_checkbox_outputs,
-    )
-    
     # ========== Load/Save Metadata ==========
     generation_section["load_file"].upload(
         fn=lambda file_obj: gen_h.load_metadata(file_obj, llm_handler),
