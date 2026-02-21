@@ -16,6 +16,10 @@ from .generation_batch_navigation_wiring import register_generation_batch_naviga
 from .generation_mode_wiring import register_generation_mode_handlers
 from .generation_run_wiring import register_generation_run_handlers
 from .results_aux_wiring import register_results_aux_handlers
+from .results_display_wiring import (
+    register_results_restore_and_lrc_handlers,
+    register_results_save_button_handlers,
+)
 from .generation_service_wiring import register_generation_service_handlers
 from .training_dataset_builder_wiring import register_training_dataset_builder_handlers
 from .training_dataset_preprocess_wiring import (
@@ -35,6 +39,8 @@ __all__ = [
     "register_generation_mode_handlers",
     "register_generation_run_handlers",
     "register_results_aux_handlers",
+    "register_results_restore_and_lrc_handlers",
+    "register_results_save_button_handlers",
     "register_generation_service_handlers",
     "register_training_dataset_builder_handlers",
     "register_training_dataset_load_handler",

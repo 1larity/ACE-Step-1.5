@@ -15,6 +15,9 @@ _RUN_WIRING_PATH = Path(__file__).resolve().with_name("generation_run_wiring.py"
 _BATCH_NAV_WIRING_PATH = Path(__file__).resolve().with_name(
     "generation_batch_navigation_wiring.py"
 )
+_RESULTS_DISPLAY_WIRING_PATH = Path(__file__).resolve().with_name(
+    "results_display_wiring.py"
+)
 _TRAINING_DATASET_BUILDER_WIRING_PATH = Path(__file__).resolve().with_name(
     "training_dataset_builder_wiring.py"
 )
@@ -100,6 +103,13 @@ def _load_training_dataset_builder_wiring_module() -> ast.Module:
     return ast.parse(source)
 
 
+def _load_results_display_wiring_module() -> ast.Module:
+    """Return the parsed AST module for results display/save wiring."""
+
+    source = _RESULTS_DISPLAY_WIRING_PATH.read_text(encoding="utf-8")
+    return ast.parse(source)
+
+
 def _call_name(node: ast.AST) -> str | None:
     """Extract a simple function name from a call node target."""
 
@@ -130,6 +140,8 @@ class DecompositionContractTests(unittest.TestCase):
         self.assertIn("register_generation_mode_handlers", call_names)
         self.assertIn("register_generation_run_handlers", call_names)
         self.assertIn("register_results_aux_handlers", call_names)
+        self.assertIn("register_results_save_button_handlers", call_names)
+        self.assertIn("register_results_restore_and_lrc_handlers", call_names)
         self.assertIn("build_mode_ui_outputs", call_names)
 
     def test_generation_mode_wiring_uses_mode_ui_outputs_variable(self):
@@ -261,6 +273,18 @@ class DecompositionContractTests(unittest.TestCase):
 
         self.assertIn("load_existing_dataset_for_preprocess", attribute_names)
         self.assertIn("preprocess_dataset", call_names)
+
+    def test_results_display_wiring_calls_expected_results_handlers(self):
+        """Results display wiring should call restore and LRC subtitle handlers."""
+
+        wiring_node = _load_results_display_wiring_module()
+        attribute_names = []
+        for node in ast.walk(wiring_node):
+            if isinstance(node, ast.Attribute):
+                attribute_names.append(node.attr)
+
+        self.assertIn("restore_batch_parameters", attribute_names)
+        self.assertIn("update_audio_subtitles_from_lrc", attribute_names)
 
 
 if __name__ == "__main__":
