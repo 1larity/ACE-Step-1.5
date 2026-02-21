@@ -3,12 +3,12 @@ Gradio UI Event Handlers Module
 Main entry point for setting up all event handlers
 """
 # Import handler modules
-from . import generation_handlers as gen_h
 from .wiring import (
     GenerationWiringContext,
     TrainingWiringContext,
     build_mode_ui_outputs,
     register_generation_batch_navigation_handlers,
+    register_generation_metadata_file_handlers,
     register_generation_metadata_handlers,
     register_generation_mode_handlers,
     register_generation_run_handlers,
@@ -80,54 +80,10 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         auto_checkbox_outputs=auto_checkbox_outputs,
     )
 
-    # ========== Load/Save Metadata ==========
-    generation_section["load_file"].upload(
-        fn=lambda file_obj: gen_h.load_metadata(file_obj, llm_handler),
-        inputs=[generation_section["load_file"]],
-        outputs=[
-            generation_section["task_type"],
-            generation_section["captions"],
-            generation_section["lyrics"],
-            generation_section["vocal_language"],
-            generation_section["bpm"],
-            generation_section["key_scale"],
-            generation_section["time_signature"],
-            generation_section["audio_duration"],
-            generation_section["batch_size_input"],
-            generation_section["inference_steps"],
-            generation_section["guidance_scale"],
-            generation_section["seed"],
-            generation_section["random_seed_checkbox"],
-            generation_section["use_adg"],
-            generation_section["cfg_interval_start"],
-            generation_section["cfg_interval_end"],
-            generation_section["shift"],
-            generation_section["infer_method"],
-            generation_section["custom_timesteps"],
-            generation_section["audio_format"],
-            generation_section["lm_temperature"],
-            generation_section["lm_cfg_scale"],
-            generation_section["lm_top_k"],
-            generation_section["lm_top_p"],
-            generation_section["lm_negative_prompt"],
-            generation_section["use_cot_metas"],  # Added: use_cot_metas
-            generation_section["use_cot_caption"],
-            generation_section["use_cot_language"],
-            generation_section["audio_cover_strength"],
-            generation_section["cover_noise_strength"],
-            generation_section["think_checkbox"],
-            generation_section["text2music_audio_code_string"],
-            generation_section["repainting_start"],
-            generation_section["repainting_end"],
-            generation_section["track_name"],
-            generation_section["complete_track_classes"],
-            generation_section["instrumental_checkbox"],  # Added: instrumental_checkbox
-            results_section["is_format_caption_state"]
-        ]
-    ).then(
-        fn=gen_h.uncheck_auto_for_populated_fields,
-        inputs=auto_checkbox_inputs,
-        outputs=auto_checkbox_outputs,
+    register_generation_metadata_file_handlers(
+        wiring_context,
+        auto_checkbox_inputs=auto_checkbox_inputs,
+        auto_checkbox_outputs=auto_checkbox_outputs,
     )
     register_results_save_button_handlers(wiring_context)
     register_results_aux_handlers(

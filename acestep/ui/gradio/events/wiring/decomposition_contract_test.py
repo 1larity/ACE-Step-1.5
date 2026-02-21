@@ -11,6 +11,9 @@ import unittest
 
 _EVENTS_INIT_PATH = Path(__file__).resolve().parents[1] / "__init__.py"
 _MODE_WIRING_PATH = Path(__file__).resolve().with_name("generation_mode_wiring.py")
+_METADATA_FILE_WIRING_PATH = Path(__file__).resolve().with_name(
+    "generation_metadata_file_wiring.py"
+)
 _RUN_WIRING_PATH = Path(__file__).resolve().with_name("generation_run_wiring.py")
 _BATCH_NAV_WIRING_PATH = Path(__file__).resolve().with_name(
     "generation_batch_navigation_wiring.py"
@@ -58,6 +61,13 @@ def _load_generation_mode_wiring_node() -> ast.FunctionDef:
         if isinstance(node, ast.FunctionDef) and node.name == "register_generation_mode_handlers":
             return node
     raise AssertionError("register_generation_mode_handlers not found")
+
+
+def _load_generation_metadata_file_wiring_module() -> ast.Module:
+    """Return the parsed AST module for metadata file-load wiring."""
+
+    source = _METADATA_FILE_WIRING_PATH.read_text(encoding="utf-8")
+    return ast.parse(source)
 
 
 def _load_generation_run_wiring_node() -> ast.FunctionDef:
@@ -136,6 +146,7 @@ class DecompositionContractTests(unittest.TestCase):
 
         self.assertIn("register_generation_service_handlers", call_names)
         self.assertIn("register_generation_batch_navigation_handlers", call_names)
+        self.assertIn("register_generation_metadata_file_handlers", call_names)
         self.assertIn("register_generation_metadata_handlers", call_names)
         self.assertIn("register_generation_mode_handlers", call_names)
         self.assertIn("register_generation_run_handlers", call_names)
@@ -143,6 +154,18 @@ class DecompositionContractTests(unittest.TestCase):
         self.assertIn("register_results_save_button_handlers", call_names)
         self.assertIn("register_results_restore_and_lrc_handlers", call_names)
         self.assertIn("build_mode_ui_outputs", call_names)
+
+    def test_generation_metadata_file_wiring_calls_expected_handlers(self):
+        """Metadata file wiring should call load-metadata and auto-uncheck handlers."""
+
+        wiring_node = _load_generation_metadata_file_wiring_module()
+        attribute_names = []
+        for node in ast.walk(wiring_node):
+            if isinstance(node, ast.Attribute):
+                attribute_names.append(node.attr)
+
+        self.assertIn("load_metadata", attribute_names)
+        self.assertIn("uncheck_auto_for_populated_fields", attribute_names)
 
     def test_generation_mode_wiring_uses_mode_ui_outputs_variable(self):
         """Mode wiring helper should bind generation_mode outputs to mode_ui_outputs."""

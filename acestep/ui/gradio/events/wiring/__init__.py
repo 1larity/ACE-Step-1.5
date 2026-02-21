@@ -12,6 +12,7 @@ from .context import (
     build_mode_ui_outputs,
 )
 from .generation_metadata_wiring import register_generation_metadata_handlers
+from .generation_metadata_file_wiring import register_generation_metadata_file_handlers
 from .generation_batch_navigation_wiring import register_generation_batch_navigation_handlers
 from .generation_mode_wiring import register_generation_mode_handlers
 from .generation_run_wiring import register_generation_run_handlers
@@ -35,6 +36,7 @@ __all__ = [
     "build_auto_checkbox_outputs",
     "build_mode_ui_outputs",
     "register_generation_batch_navigation_handlers",
+    "register_generation_metadata_file_handlers",
     "register_generation_metadata_handlers",
     "register_generation_mode_handlers",
     "register_generation_run_handlers",
