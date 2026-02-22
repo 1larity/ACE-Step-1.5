@@ -28,6 +28,7 @@ def build_language_selector(current_language: str) -> dict[str, Any]:
             value=current_language,
             label=t("service.language_label"),
             info=t("service.language_info"),
+            interactive=True,
             elem_classes=["has-info-container"],
             scale=1,
         )
