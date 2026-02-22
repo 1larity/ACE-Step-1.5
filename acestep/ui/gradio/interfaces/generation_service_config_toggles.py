@@ -6,6 +6,14 @@ import gradio as gr
 
 from acestep.ui.gradio.i18n import t
 
+try:
+    from acestep.models.mlx import mlx_available as _mlx_avail
+except ImportError:
+    def _mlx_avail() -> bool:
+        """Return False when MLX dependency is unavailable."""
+
+        return False
+
 
 def build_service_toggles(
     dit_handler: Any,
@@ -88,8 +96,6 @@ def build_service_toggles(
             + (" (recommended for this tier)" if default_quantization else " (optional for this tier)"),
             elem_classes=["has-info-container"],
         )
-
-        from acestep.models.mlx import mlx_available as _mlx_avail
 
         mlx_ok = _mlx_avail()
         mlx_dit_checkbox = gr.Checkbox(

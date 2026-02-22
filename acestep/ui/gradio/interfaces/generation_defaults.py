@@ -1,10 +1,10 @@
 """Shared defaults/helpers for generation interface builders."""
 
 import sys
-from typing import Any
+from typing import Any, Optional
 
 from acestep.gpu_config import GPUConfig, get_global_gpu_config
-from acestep.ui.gradio.events.generation_handlers import _is_pure_base_model
+from acestep.ui.gradio.events.generation_handlers import is_pure_base_model
 
 
 def compute_init_defaults(
@@ -25,7 +25,7 @@ def compute_init_defaults(
     service_mode = init_params is not None and init_params.get("service_mode", False)
     current_language = init_params.get("language", language) if init_params else language
 
-    gpu_config: GPUConfig = init_params.get("gpu_config") if init_params else None
+    gpu_config: Optional[GPUConfig] = init_params.get("gpu_config") if init_params else None
     if gpu_config is None:
         gpu_config = get_global_gpu_config()
 
@@ -112,7 +112,7 @@ def resolve_is_pure_base_model(
 
     if service_pre_initialized and init_params and "dit_handler" in init_params:
         config_path = init_params.get("config_path", "")
-        return _is_pure_base_model((config_path or "").lower())
+        return is_pure_base_model((config_path or "").lower())
 
     available_models = dit_handler.get_available_acestep_v15_models()
     default_model = (
@@ -121,4 +121,4 @@ def resolve_is_pure_base_model(
         else (available_models[0] if available_models else None)
     )
     actual_model = init_params.get("config_path", default_model) if init_params else default_model
-    return _is_pure_base_model((actual_model or "").lower())
+    return is_pure_base_model((actual_model or "").lower())

@@ -54,37 +54,37 @@ def build_output_controls(
             )
         with gr.Row():
             enable_normalization = gr.Checkbox(
-                label=t("gen.enable_normalization"),
+                label=t("generation.enable_normalization"),
                 value=params.get("enable_normalization", True) if service_pre_initialized else True,
-                info=t("gen.enable_normalization_info"),
+                info=t("generation.enable_normalization_info"),
                 elem_classes=["has-info-container"],
             )
             normalization_db = gr.Slider(
-                label=t("gen.normalization_db"),
+                label=t("generation.normalization_db"),
                 minimum=-10.0,
                 maximum=0.0,
                 step=0.1,
                 value=params.get("normalization_db", -1.0) if service_pre_initialized else -1.0,
-                info=t("gen.normalization_db_info"),
+                info=t("generation.normalization_db_info"),
                 elem_classes=["has-info-container"],
             )
         with gr.Row():
             latent_shift = gr.Slider(
-                label=t("gen.latent_shift"),
+                label=t("generation.latent_shift"),
                 minimum=-0.2,
                 maximum=0.2,
                 step=0.01,
                 value=params.get("latent_shift", 0.0) if service_pre_initialized else 0.0,
-                info=t("gen.latent_shift_info"),
+                info=t("generation.latent_shift_info"),
                 elem_classes=["has-info-container"],
             )
             latent_rescale = gr.Slider(
-                label=t("gen.latent_rescale"),
+                label=t("generation.latent_rescale"),
                 minimum=0.5,
                 maximum=1.5,
                 step=0.01,
                 value=params.get("latent_rescale", 1.0) if service_pre_initialized else 1.0,
-                info=t("gen.latent_rescale_info"),
+                info=t("generation.latent_rescale_info"),
                 elem_classes=["has-info-container"],
             )
     return {

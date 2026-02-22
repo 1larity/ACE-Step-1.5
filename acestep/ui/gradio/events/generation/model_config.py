@@ -15,7 +15,7 @@ from acestep.constants import (
 )
 
 
-def _is_pure_base_model(config_path_lower: str) -> bool:
+def is_pure_base_model(config_path_lower: str) -> bool:
     """Check if a model path refers to a pure base model (not SFT or turbo).
 
     Only pure base models support extended tasks (Extract, Lego, Complete).
@@ -39,7 +39,7 @@ def update_model_type_settings(config_path, current_mode=None):
     config_path_lower = config_path.lower()
 
     is_turbo = "turbo" in config_path_lower
-    is_pure_base = _is_pure_base_model(config_path_lower)
+    is_pure_base = is_pure_base_model(config_path_lower)
 
     return get_model_type_ui_settings(is_turbo, current_mode=current_mode, is_pure_base=is_pure_base)
 

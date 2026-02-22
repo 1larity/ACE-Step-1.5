@@ -10,11 +10,17 @@ from .generation_defaults import compute_init_defaults, resolve_is_pure_base_mod
 from .generation_tab_primary_controls import (
     build_hidden_generation_state,
     build_mode_selector_controls,
+)
+from .generation_tab_simple_controls import (
     build_simple_mode_controls,
+)
+from .generation_tab_source_controls import (
     build_source_track_and_code_controls,
 )
-from .generation_tab_runtime_controls import (
+from .generation_tab_generate_controls import (
     build_generate_row_controls,
+)
+from .generation_tab_optional_controls import (
     build_optional_parameter_controls,
 )
 from .generation_tab_secondary_controls import (

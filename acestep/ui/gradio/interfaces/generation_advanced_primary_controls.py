@@ -17,21 +17,21 @@ def build_lora_controls() -> dict[str, Any]:
         A component map containing LoRA path, action buttons, toggles, and status controls.
     """
 
-    with gr.Accordion("\U0001f527 LoRA Adapter", open=False, elem_classes=["has-info-container"]):
+    with gr.Accordion(t("generation.lora_accordion_title"), open=False, elem_classes=["has-info-container"]):
         with gr.Row():
             lora_path = gr.Textbox(
-                label="LoRA Path",
-                placeholder="./lora_output/final/adapter",
-                info="Path to trained LoRA adapter directory",
+                label=t("generation.lora_path_label"),
+                placeholder=t("generation.lora_path_placeholder"),
+                info=t("generation.lora_path_info"),
                 scale=3,
             )
-            load_lora_btn = gr.Button("\U0001f4e5 Load LoRA", variant="secondary", scale=1)
-            unload_lora_btn = gr.Button("\U0001f5d1\ufe0f Unload", variant="secondary", scale=1)
+            load_lora_btn = gr.Button(t("generation.load_lora_btn"), variant="secondary", scale=1)
+            unload_lora_btn = gr.Button(t("generation.unload_lora_btn"), variant="secondary", scale=1)
         with gr.Row():
             use_lora_checkbox = gr.Checkbox(
-                label="Use LoRA",
+                label=t("generation.use_lora_label"),
                 value=False,
-                info="Enable LoRA adapter for inference",
+                info=t("generation.use_lora_info"),
                 scale=1,
             )
             lora_scale_slider = gr.Slider(
@@ -39,13 +39,13 @@ def build_lora_controls() -> dict[str, Any]:
                 maximum=1.0,
                 value=1.0,
                 step=0.05,
-                label="LoRA Scale",
-                info="LoRA influence strength (0=disabled, 1=full)",
+                label=t("generation.lora_scale_label"),
+                info=t("generation.lora_scale_info"),
                 scale=2,
             )
         lora_status = gr.Textbox(
-            label="LoRA Status",
-            value="No LoRA loaded",
+            label=t("generation.lora_status_label"),
+            value=t("generation.lora_status_default"),
             interactive=False,
             lines=1,
             elem_classes=["no-tooltip"],

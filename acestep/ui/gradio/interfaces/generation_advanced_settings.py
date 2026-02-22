@@ -5,7 +5,7 @@ from typing import Any
 import gradio as gr
 
 from acestep.ui.gradio.events.generation_handlers import (
-    _is_pure_base_model,
+    is_pure_base_model,
     get_ui_control_config,
 )
 from acestep.ui.gradio.i18n import t
@@ -50,7 +50,7 @@ def create_advanced_settings_section(
         is_turbo_model = init_params["dit_handler"].is_turbo_model()
         ui_config = get_ui_control_config(
             is_turbo_model,
-            is_pure_base=_is_pure_base_model((config_path or "").lower()),
+            is_pure_base=is_pure_base_model((config_path or "").lower()),
         )
     else:
         ui_config = get_ui_control_config(True)
