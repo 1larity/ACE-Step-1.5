@@ -16,10 +16,18 @@ def _load_module():
 
 _MODULE = _load_module()
 get_audio_player_preferences_head = _MODULE.get_audio_player_preferences_head
+_load_preferences_script = _MODULE._load_preferences_script
+_SCRIPT_PATH = Path(__file__).with_name("audio_player_preferences.js")
 
 
 class AudioPlayerPreferencesHeadTests(unittest.TestCase):
     """Tests for browser script generation used by Gradio ``Blocks(head=...)``."""
+
+    def test_external_script_asset_exists(self):
+        """The externalized JavaScript asset should exist and be non-empty."""
+        self.assertTrue(_SCRIPT_PATH.is_file())
+        script_asset = _load_preferences_script()
+        self.assertTrue(script_asset)
 
     def test_script_contains_volume_persistence_and_sync_hooks(self):
         """Success path: script should include storage and volume-change handling."""

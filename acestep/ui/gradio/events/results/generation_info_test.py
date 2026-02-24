@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import types
 import unittest
+import builtins
 from unittest.mock import patch
 
 
@@ -17,7 +18,7 @@ def _load_module():
     ui_pkg = sys.modules.setdefault("acestep.ui", types.ModuleType("acestep.ui"))
     gradio_pkg = sys.modules.setdefault("acestep.ui.gradio", types.ModuleType("acestep.ui.gradio"))
     i18n_mod = types.ModuleType("acestep.ui.gradio.i18n")
-    i18n_mod.t = lambda key, **kwargs: key
+    i18n_mod.t = lambda key, **_kwargs: key
     sys.modules["acestep.ui.gradio.i18n"] = i18n_mod
     acestep_pkg.ui = ui_pkg
     ui_pkg.gradio = gradio_pkg
@@ -57,8 +58,16 @@ class ClearAudioOutputsTests(unittest.TestCase):
     """Tests for clear_audio_outputs_for_new_generation."""
 
     def test_returns_nine_nones(self):
-        """Should return a tuple of 9 None values."""
-        result = clear_audio_outputs_for_new_generation()
+        """Should return a tuple of 9 None values when Gradio import fails."""
+        real_import = builtins.__import__
+
+        def _mocked_import(name, *args, **kwargs):
+            if name == "gradio":
+                raise ImportError("simulated missing gradio")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=_mocked_import):
+            result = clear_audio_outputs_for_new_generation()
         self.assertIsInstance(result, tuple)
         self.assertEqual(len(result), 9)
         for item in result:
