@@ -79,6 +79,13 @@ def generate_with_batch_management(
             )
 
     result = final_result_from_inner
+    if result is None:
+        error_msg = t("messages.batch_failed", error="No generation result was produced")
+        logger.warning("[generate_with_batch_management] generate_with_progress yielded no results")
+        gr.Warning(error_msg)
+        yield (gr.skip(),) * 55
+        return
+
     all_audio_paths = result[8]
 
     if all_audio_paths is None:

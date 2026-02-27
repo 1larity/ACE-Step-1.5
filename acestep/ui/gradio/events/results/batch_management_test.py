@@ -126,6 +126,26 @@ class BatchManagementWrapperTests(unittest.TestCase):
         self.assertEqual(final_batch_queue[0]["lrcs"], lrcs)
         self.assertEqual(final_batch_queue[0]["subtitles"], subtitles)
 
+    def test_empty_inner_generator_returns_skip_tuple_and_warning(self):
+        """Empty inner generator should fail gracefully without indexing None."""
+        module, state = load_batch_management_module(is_windows=False)
+
+        def _gen(*_args, **_kwargs):
+            """Yield nothing to simulate a defensive empty-generator edge case."""
+            if False:
+                yield None
+
+        kwargs = _build_call_kwargs(module)
+        with patch.dict(module.generate_with_batch_management.__globals__, {"generate_with_progress": _gen}):
+            outputs = list(module.generate_with_batch_management(None, None, **kwargs))
+
+        self.assertEqual(len(outputs), 1)
+        self.assertEqual(len(outputs[0]), 55)
+        self.assertTrue(all(item.get("kind") == "skip" for item in outputs[0]))
+        self.assertEqual(len(state["store_calls"]), 0)
+        self.assertTrue(state["warning_messages"])
+        self.assertIn("messages.batch_failed", state["warning_messages"][0])
+
 
 if __name__ == "__main__":
     unittest.main()

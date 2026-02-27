@@ -106,6 +106,9 @@ def generate_next_batch_background(
         for partial_result in generator:
             final_result = partial_result
 
+        if final_result is None:
+            raise RuntimeError("generate_with_progress yielded no results")
+
         all_audio_paths = final_result[8]
         generation_info = final_result[9]
         seed_value_for_ui = final_result[11]

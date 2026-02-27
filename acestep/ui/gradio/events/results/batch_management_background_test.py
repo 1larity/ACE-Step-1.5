@@ -126,6 +126,32 @@ class BatchManagementBackgroundTests(unittest.TestCase):
         self.assertEqual(result[0][1]["status"], "error")
         self.assertTrue(state["warning_messages"])
 
+    def test_background_empty_generator_sets_error_entry(self):
+        """Empty inner generator should return error state instead of indexing None."""
+        module, state = load_batch_management_module(is_windows=False)
+
+        def _empty_gen(*_args, **_kwargs):
+            """Yield nothing to simulate empty background generation output."""
+            if False:
+                yield None
+
+        with patch.dict(module.generate_next_batch_background.__globals__, {"generate_with_progress": _empty_gen}):
+            result = module.generate_next_batch_background(
+                None,
+                None,
+                autogen_enabled=True,
+                generation_params={},
+                current_batch_index=0,
+                total_batches=1,
+                batch_queue={},
+                is_format_caption=False,
+            )
+
+        self.assertIn("messages.batch_failed", result[2])
+        self.assertFalse(result[3]["interactive"])
+        self.assertEqual(result[0][1]["status"], "error")
+        self.assertTrue(state["warning_messages"])
+
 
 if __name__ == "__main__":
     unittest.main()
