@@ -62,6 +62,7 @@ from acestep.api.http.model_service_routes import register_model_service_routes
 from acestep.api.http.reinitialize_route import register_reinitialize_route
 from acestep.api.http.sample_format_routes import register_sample_format_routes
 from acestep.api.http.audio_route import register_audio_route
+from acestep.api.http.query_result_route import register_query_result_route
 
 from acestep.handler import AceStepHandler
 from acestep.llm_inference import LLMHandler
@@ -2452,126 +2453,6 @@ def create_app() -> FastAPI:
         await q.put((rec.job_id, req))
         return _wrap_response({"task_id": rec.job_id, "status": "queued", "queue_position": position})
 
-    @app.post("/query_result")
-    async def query_result(request: Request, authorization: Optional[str] = Header(None)):
-        """Batch query job results"""
-        content_type = (request.headers.get("content-type") or "").lower()
-
-        if "json" in content_type:
-            body = await request.json()
-        else:
-            form = await request.form()
-            body = {k: v for k, v in form.items()}
-
-        verify_token_from_request(body, authorization)
-        task_id_list_str = body.get("task_id_list", "[]")
-
-        # Parse task ID list
-        if isinstance(task_id_list_str, list):
-            task_id_list = task_id_list_str
-        else:
-            try:
-                task_id_list = json.loads(task_id_list_str)
-            except Exception:
-                task_id_list = []
-
-        local_cache = getattr(app.state, 'local_cache', None)
-        data_list = []
-        current_time = time.time()
-
-        for task_id in task_id_list:
-            result_key = f"{RESULT_KEY_PREFIX}{task_id}"
-
-            # Read from local cache first
-            if local_cache:
-                data = local_cache.get(result_key)
-                if data:
-                    try:
-                        data_json = json.loads(data)
-                    except Exception:
-                        data_json = []
-
-                    if len(data_json) <= 0:
-                        data_list.append({"task_id": task_id, "result": data, "status": 2})
-                    else:
-                        status = data_json[0].get("status")
-                        create_time = data_json[0].get("create_time", 0)
-                        if status == 0 and (current_time - create_time) > TASK_TIMEOUT_SECONDS:
-                            data_list.append({"task_id": task_id, "result": data, "status": 2})
-                        else:
-                            data_list.append({
-                                "task_id": task_id,
-                                "result": data,
-                                "status": int(status) if status is not None else 1,
-                                "progress_text": log_buffer.last_message
-                            })
-                    continue
-
-            # Fallback to job_store query
-            rec = store.get(task_id)
-            if rec:
-                env = getattr(rec, 'env', 'development')
-                create_time = rec.created_at
-                status_int = _map_status(rec.status)
-
-                if rec.result and rec.status == "succeeded":
-                    # Check if it's a "Full Analysis" result
-                    if rec.result.get("status_message") == "Full Hardware Analysis Success":
-                         result_data = [rec.result]
-                    else:
-                        audio_paths = rec.result.get("audio_paths", [])
-                        metas = rec.result.get("metas", {}) or {}
-                        result_data = [
-                            {
-                                "file": p, "wave": "", "status": status_int,
-                                "create_time": int(create_time), "env": env,
-                                "prompt": metas.get("caption", ""),
-                                "lyrics": metas.get("lyrics", ""),
-                                "metas": {
-                                    "bpm": metas.get("bpm"),
-                                    "duration": metas.get("duration"),
-                                    "genres": metas.get("genres", ""),
-                                    "keyscale": metas.get("keyscale", ""),
-                                    "timesignature": metas.get("timesignature", ""),
-                                }
-                            }
-                            for p in audio_paths
-                        ] if audio_paths else [{
-                            "file": "", "wave": "", "status": status_int,
-                            "create_time": int(create_time), "env": env,
-                            "prompt": metas.get("caption", ""),
-                            "lyrics": metas.get("lyrics", ""),
-                            "metas": {
-                                "bpm": metas.get("bpm"),
-                                "duration": metas.get("duration"),
-                                "genres": metas.get("genres", ""),
-                                "keyscale": metas.get("keyscale", ""),
-                                "timesignature": metas.get("timesignature", ""),
-                            }
-                        }]
-                else:
-                    result_data = [{
-                        "file": "", "wave": "", "status": status_int,
-                        "create_time": int(create_time), "env": env,
-                        "prompt": "", "lyrics": "",
-                        "metas": {},
-                        "progress": float(rec.progress) if rec else 0.0,
-                        "stage": rec.stage if rec else "queued",
-                        "error": rec.error if rec.error else None,
-                    }]
-
-                current_log = log_buffer.last_message if status_int == 0 else rec.progress_text
-                data_list.append({
-                    "task_id": task_id,
-                    "result": json.dumps(result_data, ensure_ascii=False),
-                    "status": status_int,
-                    "progress_text": current_log
-                })
-            else:
-                data_list.append({"task_id": task_id, "result": "[]", "status": 0})
-
-        return _wrap_response(data_list)
-
     register_model_service_routes(
         app=app,
         verify_api_key=verify_api_key,
@@ -2628,6 +2509,17 @@ def create_app() -> FastAPI:
     register_audio_route(
         app=app,
         verify_api_key=verify_api_key,
+    )
+
+    register_query_result_route(
+        app=app,
+        verify_token_from_request=verify_token_from_request,
+        wrap_response=_wrap_response,
+        store=store,
+        map_status=_map_status,
+        result_key_prefix=RESULT_KEY_PREFIX,
+        task_timeout_seconds=TASK_TIMEOUT_SECONDS,
+        log_buffer=log_buffer,
     )
 
     return app
