@@ -52,11 +52,7 @@ from acestep.api.jobs.models import (
     JobResult,
     JobStatus,
 )
-from acestep.api.jobs.store import (
-    _JobStore,
-    _append_jsonl,
-    _atomic_write_json,
-)
+from acestep.api.jobs.store import _JobStore
 from acestep.api.http.lora_routes import register_lora_routes
 from acestep.api.http.model_service_routes import register_model_service_routes
 from acestep.api.http.reinitialize_route import register_reinitialize_route
@@ -71,6 +67,13 @@ from acestep.api.jobs.local_cache_updates import (
 from acestep.api.jobs.worker_loops import (
     process_queue_item,
     run_job_store_cleanup_loop,
+)
+from acestep.api.runtime_helpers import (
+    append_jsonl as _runtime_append_jsonl,
+    atomic_write_json as _runtime_atomic_write_json,
+    start_tensorboard as _runtime_start_tensorboard,
+    stop_tensorboard as _runtime_stop_tensorboard,
+    temporary_llm_model as _runtime_temporary_llm_model,
 )
 
 from acestep.handler import AceStepHandler
@@ -562,165 +565,42 @@ class GenerateMusicRequest(BaseModel):
 
 def _stop_tensorboard(app: FastAPI) -> None:
     """Stop TensorBoard process if running."""
-    try:
-        proc = getattr(app.state, "tensorboard_process", None)
-    except Exception:
-        proc = None
 
-    if proc is None:
-        return
-
-    try:
-        proc.terminate()
-    except Exception:
-        pass
-    try:
-        proc.wait(timeout=3)
-    except Exception:
-        try:
-            proc.kill()
-        except Exception:
-            pass
-    try:
-        app.state.tensorboard_process = None
-    except Exception:
-        pass
+    _runtime_stop_tensorboard(app)
 
 
 def _start_tensorboard(app: FastAPI, logdir: str) -> Optional[str]:
     """(Re)start TensorBoard with the given logdir and return URL if successful."""
-    try:
-        import subprocess
-        import sys
-        import os
 
-        tensorboard_port = int(os.getenv("TENSORBOARD_PORT", "6006"))
-        _stop_tensorboard(app)
-
-        # Use virtual environment's tensorboard if available
-        if sys.prefix != sys.base_prefix:  # Running in virtual environment
-            tensorboard_cmd = os.path.join(sys.prefix, "Scripts", "tensorboard.exe")
-            if not os.path.exists(tensorboard_cmd):
-                tensorboard_cmd = os.path.join(sys.prefix, "bin", "tensorboard")
-            if not os.path.exists(tensorboard_cmd):
-                # Fallback to system tensorboard if venv version not found
-                tensorboard_cmd = "tensorboard"
-        else:
-            tensorboard_cmd = "tensorboard"
-
-        app.state.tensorboard_process = subprocess.Popen(
-            [
-                tensorboard_cmd,
-                "--logdir",
-                logdir,
-                "--port",
-                str(tensorboard_port),
-                "--bind_all",
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        return f"http://localhost:{tensorboard_port}"
-    except Exception:
-        return None
+    return _runtime_start_tensorboard(app, logdir, stop_tensorboard_fn=_runtime_stop_tensorboard)
 
 
 @contextmanager
 def _temporary_llm_model(app: FastAPI, llm: "LLMHandler", lm_model_path: Optional[str]):
-    """Temporarily switch LLM model for a critical section and restore afterward.
+    """Temporarily switch LLM model for a critical section and restore afterward."""
 
-    This is intentionally best-effort and conservative:
-    - If lm_model_path is empty/None -> no-op
-    - If LLM isn't initialized -> no-op (handlers already validate this)
-    - Uses app.state._llm_init_lock to serialize LLM re-inits
-    """
-    desired = (lm_model_path or "").strip()
-    if not desired:
+    with _runtime_temporary_llm_model(
+        app=app,
+        llm=llm,
+        lm_model_path=lm_model_path,
+        get_project_root=_get_project_root,
+        get_model_name=_get_model_name,
+        ensure_model_downloaded=_ensure_model_downloaded,
+        env_bool=_env_bool,
+    ):
         yield
-        return
 
-    if llm is None or not getattr(llm, "llm_initialized", False):
-        yield
-        return
 
-    lock = getattr(app.state, "_llm_init_lock", None)
-    if lock is None:
-        yield
-        return
+def _atomic_write_json(path: str, payload: Dict[str, Any]) -> None:
+    """Write JSON atomically to reduce corruption risk during incremental saves."""
 
-    with lock:
-        prev_params = getattr(llm, "last_init_params", None)
-        prev_model = (prev_params or {}).get("lm_model_path") if isinstance(prev_params, dict) else None
-        if prev_model and prev_model.strip() == desired:
-            yield
-            return
+    _runtime_atomic_write_json(path, payload)
 
-        project_root = _get_project_root()
-        checkpoint_dir = os.path.join(project_root, "checkpoints")
-        os.makedirs(checkpoint_dir, exist_ok=True)
 
-        lm_model_name = _get_model_name(desired)
-        if lm_model_name:
-            try:
-                _ensure_model_downloaded(lm_model_name, checkpoint_dir)
-            except Exception:
-                pass
+def _append_jsonl(path: str, record: Dict[str, Any]) -> None:
+    """Append a single JSONL record for audit/progress tracing."""
 
-        restore_params = prev_params if isinstance(prev_params, dict) else None
-
-        ok_switched = False
-        try:
-            new_params = dict(restore_params) if restore_params else {
-                "checkpoint_dir": checkpoint_dir,
-                "backend": os.getenv("ACESTEP_LM_BACKEND", "vllm").strip().lower() or "vllm",
-                "device": os.getenv("ACESTEP_LM_DEVICE", os.getenv("ACESTEP_DEVICE", "auto")),
-                "offload_to_cpu": _env_bool("ACESTEP_LM_OFFLOAD_TO_CPU", False),
-                "dtype": None,
-            }
-            new_params["checkpoint_dir"] = checkpoint_dir
-            new_params["lm_model_path"] = desired
-
-            status, ok = llm.initialize(**new_params)
-            if ok:
-                ok_switched = True
-                try:
-                    app.state._llm_initialized = True
-                    app.state._llm_init_error = None
-                except Exception:
-                    pass
-            else:
-                try:
-                    app.state._llm_initialized = False
-                    app.state._llm_init_error = status
-                except Exception:
-                    pass
-        except Exception as e:
-            try:
-                app.state._llm_initialized = False
-                app.state._llm_init_error = str(e)
-            except Exception:
-                pass
-
-        try:
-            yield
-        finally:
-            if not ok_switched:
-                return
-            if not restore_params:
-                return
-            try:
-                llm.initialize(**restore_params)
-                try:
-                    app.state._llm_initialized = True
-                    app.state._llm_init_error = None
-                except Exception:
-                    pass
-            except Exception as e:
-                try:
-                    app.state._llm_initialized = False
-                    app.state._llm_init_error = str(e)
-                except Exception:
-                    pass
+    _runtime_append_jsonl(path, record)
 def _env_bool(name: str, default: bool) -> bool:
     v = os.getenv(name)
     if v is None:
