@@ -1,5 +1,6 @@
 """HTTP integration tests for the /v1/reinitialize route."""
 
+from pathlib import Path
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -8,6 +9,8 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.testclient import TestClient
 
 from acestep.api.http.reinitialize_route import register_reinitialize_route
+
+_NON_EXISTENT_TEST_ROOT = str(Path.cwd() / "non-existent-test-root")
 
 
 def _wrap_response(data, code=200, error=None):
@@ -37,7 +40,7 @@ class ReinitializeRouteHttpTests(unittest.TestCase):
             verify_api_key=_verify_api_key,
             wrap_response=_wrap_response,
             env_bool=lambda *_: False,
-            get_project_root=lambda: "/tmp/non-existent",
+            get_project_root=lambda: _NON_EXISTENT_TEST_ROOT,
         )
         return TestClient(app)
 
@@ -52,7 +55,7 @@ class ReinitializeRouteHttpTests(unittest.TestCase):
             verify_api_key=_verify_api_key,
             wrap_response=_wrap_response,
             env_bool=lambda *_: False,
-            get_project_root=lambda: "/tmp/non-existent",
+            get_project_root=lambda: _NON_EXISTENT_TEST_ROOT,
         )
         client = TestClient(app)
         response = client.post("/v1/reinitialize", headers={"Authorization": "Bearer test-token"})
