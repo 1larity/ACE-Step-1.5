@@ -37,14 +37,19 @@ def _build_running_result_payload(
 
     try:
         data_json = json.loads(data)
-    except Exception:
+    except (TypeError, json.JSONDecodeError):
         data_json = []
 
-    if len(data_json) <= 0:
+    if (
+        not isinstance(data_json, list)
+        or len(data_json) <= 0
+        or not isinstance(data_json[0], dict)
+    ):
         return {"task_id": task_id, "result": data, "status": 2}
 
-    status = data_json[0].get("status")
-    create_time = data_json[0].get("create_time", 0)
+    first_item = data_json[0]
+    status = first_item.get("status")
+    create_time = first_item.get("create_time", 0)
     if status == 0 and (current_time - create_time) > task_timeout_seconds:
         return {"task_id": task_id, "result": data, "status": 2}
     return {

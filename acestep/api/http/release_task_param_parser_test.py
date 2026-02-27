@@ -40,6 +40,17 @@ class ReleaseTaskParamParserTests(unittest.TestCase):
         self.assertAlmostEqual(7.25, parser.float("guidance_scale"))
         self.assertTrue(parser.bool("use_random_seed"))
 
+    def test_non_dict_param_obj_json_is_ignored(self):
+        """Parser should ignore parsed param_obj JSON values that are not dictionaries."""
+
+        parser = RequestParser(
+            {
+                "param_obj": "[\"not-a-dict\"]",
+                "metas": {"caption": "meta-caption"},
+            }
+        )
+        self.assertEqual("meta-caption", parser.str("prompt"))
+
 
 if __name__ == "__main__":
     unittest.main()

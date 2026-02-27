@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.parse
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -85,7 +86,10 @@ async def parse_release_task_request(
         )
 
     if content_type.startswith("application/json") or content_type.endswith("+json"):
-        body = await request.json()
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            raise HTTPException(status_code=400, detail="Malformed JSON payload")
         if not isinstance(body, dict):
             raise HTTPException(status_code=400, detail="JSON payload must be an object")
         verify_token_from_request(body, authorization)
@@ -98,34 +102,42 @@ async def parse_release_task_request(
         return req, temp_files
 
     if content_type.startswith("multipart/form-data"):
-        form = await request.form()
-        form_values = _extract_non_file_form_values(form)
-        verify_token_from_request(form_values, authorization)
+        try:
+            form = await request.form()
+            form_values = _extract_non_file_form_values(form)
+            verify_token_from_request(form_values, authorization)
 
-        ref_upload = form.get("ref_audio") or form.get("reference_audio")
-        ctx_upload = form.get("ctx_audio") or form.get("src_audio")
-        if isinstance(ref_upload, upload_file_type):
-            reference_audio_path = await save_upload_to_temp(ref_upload, prefix="ref_audio")
-            temp_files.append(reference_audio_path)
-        else:
-            reference_audio_path = validate_audio_path(
-                str(form.get("ref_audio_path") or form.get("reference_audio_path") or "").strip() or None
+            ref_upload = form.get("ref_audio") or form.get("reference_audio")
+            ctx_upload = form.get("ctx_audio") or form.get("src_audio")
+            if isinstance(ref_upload, upload_file_type):
+                reference_audio_path = await save_upload_to_temp(ref_upload, prefix="ref_audio")
+                temp_files.append(reference_audio_path)
+            else:
+                reference_audio_path = validate_audio_path(
+                    str(form.get("ref_audio_path") or form.get("reference_audio_path") or "").strip() or None
+                )
+
+            if isinstance(ctx_upload, upload_file_type):
+                src_audio_path = await save_upload_to_temp(ctx_upload, prefix="ctx_audio")
+                temp_files.append(src_audio_path)
+            else:
+                src_audio_path = validate_audio_path(
+                    str(form.get("ctx_audio_path") or form.get("src_audio_path") or "").strip() or None
+                )
+
+            req = _build(
+                request_parser_cls(dict(form_values)),
+                reference_audio_path=reference_audio_path,
+                src_audio_path=src_audio_path,
             )
-
-        if isinstance(ctx_upload, upload_file_type):
-            src_audio_path = await save_upload_to_temp(ctx_upload, prefix="ctx_audio")
-            temp_files.append(src_audio_path)
-        else:
-            src_audio_path = validate_audio_path(
-                str(form.get("ctx_audio_path") or form.get("src_audio_path") or "").strip() or None
-            )
-
-        req = _build(
-            request_parser_cls(dict(form_values)),
-            reference_audio_path=reference_audio_path,
-            src_audio_path=src_audio_path,
-        )
-        return req, temp_files
+            return req, temp_files
+        except Exception:
+            for temp_file in temp_files:
+                try:
+                    os.remove(temp_file)
+                except Exception:
+                    pass
+            raise
 
     if content_type.startswith("application/x-www-form-urlencoded"):
         form = await request.form()

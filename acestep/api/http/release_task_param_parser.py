@@ -108,7 +108,10 @@ class RequestParser:
             return value
         if isinstance(value, str) and value.strip():
             try:
-                return json.loads(value)
+                parsed = json.loads(value)
+                if isinstance(parsed, dict):
+                    return parsed
+                return {}
             except Exception:
                 pass
         return {}

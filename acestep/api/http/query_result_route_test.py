@@ -151,6 +151,24 @@ class QueryResultRouteTests(unittest.TestCase):
         self.assertEqual("[]", result["data"][0]["result"])
         self.assertEqual(0, result["data"][0]["status"])
 
+    def test_query_result_falls_back_when_cache_json_is_non_list(self):
+        """Route should treat non-list cache JSON payloads as failed cache entries."""
+
+        local_cache = {"ace_step_v1.5_task-3": json.dumps({"status": 0, "create_time": int(time.time())})}
+        app = self._build_app(local_cache=local_cache)
+        endpoint = _get_endpoint(app, "/query_result", "POST")
+
+        async def _json():
+            """Return valid request body for malformed cache shape test."""
+
+            return {"ai_token": "test-token", "task_id_list": ["task-3"]}
+
+        request = SimpleNamespace(headers={"content-type": "application/json"}, json=_json)
+        result = asyncio.run(endpoint(request, None))
+        payload = result["data"][0]
+        self.assertEqual(2, payload["status"])
+        self.assertEqual(local_cache["ace_step_v1.5_task-3"], payload["result"])
+
 
 if __name__ == "__main__":
     unittest.main()
