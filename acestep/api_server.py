@@ -64,6 +64,10 @@ from acestep.api.http.sample_format_routes import register_sample_format_routes
 from acestep.api.http.audio_route import register_audio_route
 from acestep.api.http.query_result_route import register_query_result_route
 from acestep.api.http.release_task_route import register_release_task_route
+from acestep.api.jobs.local_cache_updates import (
+    update_local_cache,
+    update_local_cache_progress,
+)
 
 from acestep.handler import AceStepHandler
 from acestep.llm_inference import LLMHandler
@@ -1112,120 +1116,32 @@ def create_app() -> FastAPI:
                     pass
 
         def _update_local_cache(job_id: str, result: Optional[Dict], status: str) -> None:
-            """Update local cache with job result"""
-            local_cache = getattr(app.state, 'local_cache', None)
-            if not local_cache:
-                return
+            """Update local cache with terminal job state payload."""
 
-            rec = store.get(job_id)
-            env = getattr(rec, 'env', 'development') if rec else 'development'
-            create_time = rec.created_at if rec else time.time()
-
-            status_int = _map_status(status)
-
-            if status == "succeeded" and result:
-                # Check if it's a "Full Analysis" result
-                if result.get("status_message") == "Full Hardware Analysis Success":
-                    result_data = [result]
-                else:
-                    audio_paths = result.get("audio_paths", [])
-                    # Final prompt/lyrics (may be modified by thinking/format)
-                    final_prompt = result.get("prompt", "")
-                    final_lyrics = result.get("lyrics", "")
-                    # Original user input from metas
-                    metas_raw = result.get("metas", {}) or {}
-                    original_prompt = metas_raw.get("prompt", "")
-                    original_lyrics = metas_raw.get("lyrics", "")
-                    # metas contains original input + other metadata
-                    metas = {
-                        "bpm": metas_raw.get("bpm"),
-                        "duration": metas_raw.get("duration"),
-                        "genres": metas_raw.get("genres", ""),
-                        "keyscale": metas_raw.get("keyscale", ""),
-                        "timesignature": metas_raw.get("timesignature", ""),
-                        "prompt": original_prompt,
-                        "lyrics": original_lyrics,
-                    }
-                    # Extra fields for Discord bot
-                    generation_info = result.get("generation_info", "")
-                    seed_value = result.get("seed_value", "")
-                    lm_model = result.get("lm_model", "")
-                    dit_model = result.get("dit_model", "")
-
-                    if audio_paths:
-                        result_data = [
-                            {
-                                "file": p,
-                                "wave": "",
-                                "status": status_int,
-                                "create_time": int(create_time),
-                                "env": env,
-                                "prompt": final_prompt,
-                                "lyrics": final_lyrics,
-                                "metas": metas,
-                                "generation_info": generation_info,
-                                "seed_value": seed_value,
-                                "lm_model": lm_model,
-                                "dit_model": dit_model,
-                                "progress": 1.0,
-                                "stage": "succeeded",
-                            }
-                            for p in audio_paths
-                        ]
-                    else:
-                        result_data = [{
-                            "file": "",
-                            "wave": "",
-                            "status": status_int,
-                            "create_time": int(create_time),
-                            "env": env,
-                            "prompt": final_prompt,
-                            "lyrics": final_lyrics,
-                            "metas": metas,
-                            "generation_info": generation_info,
-                            "seed_value": seed_value,
-                            "lm_model": lm_model,
-                            "dit_model": dit_model,
-                            "progress": 1.0,
-                            "stage": "succeeded",
-                        }]
-            else:
-                result_data = [{
-                    "file": "",
-                    "wave": "",
-                    "status": status_int,
-                    "create_time": int(create_time),
-                    "env": env,
-                    "progress": 0.0,
-                    "stage": "failed" if status == "failed" else status,
-                }]
-
-            result_key = f"{RESULT_KEY_PREFIX}{job_id}"
-            local_cache.set(result_key, result_data, ex=RESULT_EXPIRE_SECONDS)
+            update_local_cache(
+                local_cache=getattr(app.state, "local_cache", None),
+                store=store,
+                job_id=job_id,
+                result=result,
+                status=status,
+                map_status=_map_status,
+                result_key_prefix=RESULT_KEY_PREFIX,
+                result_expire_seconds=RESULT_EXPIRE_SECONDS,
+            )
 
         def _update_local_cache_progress(job_id: str, progress: float, stage: str) -> None:
-            """Update local cache with job progress for queued/running states."""
-            local_cache = getattr(app.state, 'local_cache', None)
-            if not local_cache:
-                return
+            """Update local cache with queued/running progress payload."""
 
-            rec = store.get(job_id)
-            env = getattr(rec, 'env', 'development') if rec else 'development'
-            create_time = rec.created_at if rec else time.time()
-            status_int = _map_status("running")
-
-            result_data = [{
-                "file": "",
-                "wave": "",
-                "status": status_int,
-                "create_time": int(create_time),
-                "env": env,
-                "progress": float(progress),
-                "stage": stage,
-            }]
-
-            result_key = f"{RESULT_KEY_PREFIX}{job_id}"
-            local_cache.set(result_key, result_data, ex=RESULT_EXPIRE_SECONDS)
+            update_local_cache_progress(
+                local_cache=getattr(app.state, "local_cache", None),
+                store=store,
+                job_id=job_id,
+                progress=progress,
+                stage=stage,
+                map_status=_map_status,
+                result_key_prefix=RESULT_KEY_PREFIX,
+                result_expire_seconds=RESULT_EXPIRE_SECONDS,
+            )
 
         async def _run_one_job(job_id: str, req: GenerateMusicRequest) -> None:
             job_store: _JobStore = app.state.job_store
