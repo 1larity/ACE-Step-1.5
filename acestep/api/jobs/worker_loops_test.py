@@ -88,6 +88,8 @@ class WorkerLoopTests(unittest.TestCase):
         """Success path should emit result+done and cleanup queue bookkeeping."""
 
         async def _run() -> None:
+            """Execute success-path queue item processing and assert notifications."""
+
             progress_queue = asyncio.Queue()
             done_event = _DoneEvent()
             record = SimpleNamespace(
@@ -106,10 +108,14 @@ class WorkerLoopTests(unittest.TestCase):
             cleanup_calls = []
 
             async def _run_one_job(job_id: str, _req) -> None:
+                """Mark record as succeeded and attach deterministic result payload."""
+
                 record.status = "succeeded"
                 record.result = {"job_id": job_id, "ok": True}
 
             async def _cleanup_job_temp_files(job_id: str) -> None:
+                """Record cleanup invocation for assertion."""
+
                 cleanup_calls.append(job_id)
 
             await process_queue_item(
@@ -136,6 +142,8 @@ class WorkerLoopTests(unittest.TestCase):
         """Failure path should mark failed, emit error+done, and perform cleanup."""
 
         async def _run() -> None:
+            """Execute failure-path queue item processing and assert error signaling."""
+
             progress_queue = asyncio.Queue()
             done_event = _DoneEvent()
             record = SimpleNamespace(
@@ -154,9 +162,13 @@ class WorkerLoopTests(unittest.TestCase):
             cleanup_calls = []
 
             async def _run_one_job(_job_id: str, _req) -> None:
+                """Raise deterministic runtime error to exercise failure branch."""
+
                 raise RuntimeError("boom")
 
             async def _cleanup_job_temp_files(job_id: str) -> None:
+                """Record cleanup invocation for assertion."""
+
                 cleanup_calls.append(job_id)
 
             await process_queue_item(
@@ -184,6 +196,8 @@ class WorkerLoopTests(unittest.TestCase):
         """Cleanup loop should log cleanup stats and exit on cancellation."""
 
         async def _run() -> None:
+            """Run one cleanup iteration and then cancel to verify graceful exit."""
+
             store = _FakeStore()
             store.cleanup_returns = [2]
             store.stats = {"total": 3, "succeeded": 2, "failed": 1}
@@ -191,6 +205,8 @@ class WorkerLoopTests(unittest.TestCase):
             calls = {"count": 0}
 
             async def _sleep_fn(_seconds: float) -> None:
+                """Allow first tick, then cancel loop on second tick."""
+
                 calls["count"] += 1
                 if calls["count"] == 1:
                     return
@@ -213,12 +229,16 @@ class WorkerLoopTests(unittest.TestCase):
         """Cleanup loop should log non-cancel exceptions and continue until cancelled."""
 
         async def _run() -> None:
+            """Raise one cleanup error, continue, then cancel on subsequent tick."""
+
             store = _FakeStore()
             store.cleanup_returns = [RuntimeError("cleanup-failed"), 0]
             logs = []
             calls = {"count": 0}
 
             async def _sleep_fn(_seconds: float) -> None:
+                """Permit two iterations before raising cancellation."""
+
                 calls["count"] += 1
                 if calls["count"] <= 2:
                     return
