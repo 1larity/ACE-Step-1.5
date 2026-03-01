@@ -44,6 +44,7 @@ from acestep.api.route_setup import configure_api_routes
 from acestep.api.server_cli import run_api_server_main
 from acestep.api.lifespan_runtime import initialize_lifespan_runtime
 from acestep.api.job_model_selection import select_generation_handler
+from acestep.api.job_result_payload import build_generation_success_response
 from acestep.api.job_runtime_state import (
     cleanup_job_temp_files as _cleanup_job_temp_files_state,
     ensure_models_initialized as _ensure_models_initialized,
@@ -325,23 +326,6 @@ def create_app() -> FastAPI:
                             app.state._llm_init_error = status
                         else:
                             app.state._llm_initialized = True
-
-                def _normalize_metas(meta: Dict[str, Any]) -> Dict[str, Any]:
-                    """Ensure a stable `metas` dict (keys always present)."""
-                    meta = meta or {}
-                    out: Dict[str, Any] = dict(meta)
-
-                    # Normalize key aliases
-                    if "keyscale" not in out and "key_scale" in out:
-                        out["keyscale"] = out.get("key_scale")
-                    if "timesignature" not in out and "time_signature" in out:
-                        out["timesignature"] = out.get("time_signature")
-
-                    # Ensure required keys exist
-                    for k in ["bpm", "duration", "genres", "keyscale", "timesignature"]:
-                        if out.get(k) in (None, ""):
-                            out[k] = "N/A"
-                    return out
 
                 # Normalize LM sampling parameters
                 lm_top_k = req.lm_top_k if req.lm_top_k and req.lm_top_k > 0 else 0
@@ -764,93 +748,25 @@ def create_app() -> FastAPI:
                 if not result.success:
                     raise RuntimeError(f"Music generation failed: {result.error or result.status_message}")
 
-                # Extract results
-                audio_paths = [audio["path"] for audio in result.audios if audio.get("path")]
-                first_audio = audio_paths[0] if len(audio_paths) > 0 else None
-                second_audio = audio_paths[1] if len(audio_paths) > 1 else None
-
-                # Get metadata from LM or CoT results
-                lm_metadata = result.extra_outputs.get("lm_metadata", {})
-                metas_out = _normalize_metas(lm_metadata)
-
-                # Update metas with actual values used
-                if params.cot_bpm:
-                    metas_out["bpm"] = params.cot_bpm
-                elif bpm:
-                    metas_out["bpm"] = bpm
-
-                if params.cot_duration:
-                    metas_out["duration"] = params.cot_duration
-                elif audio_duration:
-                    metas_out["duration"] = audio_duration
-
-                if params.cot_keyscale:
-                    metas_out["keyscale"] = params.cot_keyscale
-                elif key_scale:
-                    metas_out["keyscale"] = key_scale
-
-                if params.cot_timesignature:
-                    metas_out["timesignature"] = params.cot_timesignature
-                elif time_signature:
-                    metas_out["timesignature"] = time_signature
-
-                # Store original user input in metas (not the final/modified values)
-                metas_out["prompt"] = original_prompt
-                metas_out["lyrics"] = original_lyrics
-
-                # Extract seed values for response (comma-separated for multiple audios)
-                seed_values = []
-                for audio in result.audios:
-                    audio_params = audio.get("params", {})
-                    seed = audio_params.get("seed")
-                    if seed is not None:
-                        seed_values.append(str(seed))
-                seed_value = ",".join(seed_values) if seed_values else ""
-
-                # Build generation_info using the helper function (like gradio_ui)
-                time_costs = result.extra_outputs.get("time_costs", {})
-                generation_info = _build_generation_info(
-                    lm_metadata=lm_metadata,
-                    time_costs=time_costs,
-                    seed_value=seed_value,
-                    inference_steps=req.inference_steps,
-                    num_audios=len(result.audios),
-                )
-
-                def _none_if_na_str(v: Any) -> Optional[str]:
-                    if v is None:
-                        return None
-                    s = str(v).strip()
-                    if s in {"", "N/A"}:
-                        return None
-                    return s
-
-                # Get model information
                 lm_model_name = os.getenv("ACESTEP_LM_MODEL_PATH", "acestep-5Hz-lm-0.6B")
                 # Use selected_model_name (set at the beginning of _run_one_job)
                 dit_model_name = selected_model_name
 
-                return {
-                    "first_audio_path": _path_to_audio_url(first_audio) if first_audio else None,
-                    "second_audio_path": _path_to_audio_url(second_audio) if second_audio else None,
-                    "audio_paths": [_path_to_audio_url(p) for p in audio_paths],
-                    "raw_audio_paths": list(audio_paths),
-                    "generation_info": generation_info,
-                    "status_message": result.status_message,
-                    "seed_value": seed_value,
-                    # Final prompt/lyrics (may be modified by thinking/format)
-                    "prompt": caption or "",
-                    "lyrics": lyrics or "",
-                    # metas contains original user input + other metadata
-                    "metas": metas_out,
-                    "bpm": metas_out.get("bpm") if isinstance(metas_out.get("bpm"), int) else None,
-                    "duration": metas_out.get("duration") if isinstance(metas_out.get("duration"), (int, float)) else None,
-                    "genres": _none_if_na_str(metas_out.get("genres")),
-                    "keyscale": _none_if_na_str(metas_out.get("keyscale")),
-                    "timesignature": _none_if_na_str(metas_out.get("timesignature")),
-                    "lm_model": lm_model_name,
-                    "dit_model": dit_model_name,
-                }
+                return build_generation_success_response(
+                    result=result,
+                    params=params,
+                    bpm=bpm,
+                    audio_duration=audio_duration,
+                    key_scale=key_scale,
+                    time_signature=time_signature,
+                    original_prompt=original_prompt,
+                    original_lyrics=original_lyrics,
+                    inference_steps=req.inference_steps,
+                    path_to_audio_url=_path_to_audio_url,
+                    build_generation_info=_build_generation_info,
+                    lm_model_name=lm_model_name,
+                    dit_model_name=dit_model_name,
+                )
 
             t0 = time.time()
             try:
