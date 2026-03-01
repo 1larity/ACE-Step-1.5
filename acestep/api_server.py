@@ -43,6 +43,12 @@ from acestep.api.log_capture import install_log_capture
 from acestep.api.route_setup import configure_api_routes
 from acestep.api.server_cli import run_api_server_main
 from acestep.api.lifespan_runtime import initialize_lifespan_runtime
+from acestep.api.job_runtime_state import (
+    cleanup_job_temp_files as _cleanup_job_temp_files_state,
+    ensure_models_initialized as _ensure_models_initialized,
+    update_progress_job_cache as _update_progress_job_cache,
+    update_terminal_job_cache as _update_terminal_job_cache,
+)
 from acestep.api.startup_model_init import initialize_models_at_startup
 from acestep.api.worker_runtime import start_worker_tasks, stop_worker_tasks
 from acestep.api.server_utils import (
@@ -67,10 +73,6 @@ from acestep.api.http.release_task_param_parser import (
     RequestParser,
     _to_float as _request_to_float,
     _to_int as _request_to_int,
-)
-from acestep.api.jobs.local_cache_updates import (
-    update_local_cache,
-    update_local_cache_progress,
 )
 from acestep.api.runtime_helpers import (
     append_jsonl as _runtime_append_jsonl,
@@ -230,58 +232,23 @@ def create_app() -> FastAPI:
         config_path3 = runtime.config_path3
         executor = runtime.executor
 
-        async def _ensure_initialized() -> None:
-            """Check if models are initialized (they should be loaded at startup)."""
-            if getattr(app.state, "_init_error", None):
-                raise RuntimeError(app.state._init_error)
-            if not getattr(app.state, "_initialized", False):
-                raise RuntimeError("Model not initialized")
-
-        async def _cleanup_job_temp_files(job_id: str) -> None:
-            async with app.state.job_temp_files_lock:
-                paths = app.state.job_temp_files.pop(job_id, [])
-            for p in paths:
-                try:
-                    os.remove(p)
-                except Exception:
-                    pass
-
-        def _update_local_cache(job_id: str, result: Optional[Dict], status: str) -> None:
-            """Update local cache with terminal job state payload."""
-
-            update_local_cache(
-                local_cache=getattr(app.state, "local_cache", None),
-                store=store,
-                job_id=job_id,
-                result=result,
-                status=status,
-                map_status=_map_status,
-                result_key_prefix=RESULT_KEY_PREFIX,
-                result_expire_seconds=RESULT_EXPIRE_SECONDS,
-            )
-
-        def _update_local_cache_progress(job_id: str, progress: float, stage: str) -> None:
-            """Update local cache with queued/running progress payload."""
-
-            update_local_cache_progress(
-                local_cache=getattr(app.state, "local_cache", None),
-                store=store,
-                job_id=job_id,
-                progress=progress,
-                stage=stage,
-                map_status=_map_status,
-                result_key_prefix=RESULT_KEY_PREFIX,
-                result_expire_seconds=RESULT_EXPIRE_SECONDS,
-            )
-
         async def _run_one_job(job_id: str, req: GenerateMusicRequest) -> None:
             job_store: _JobStore = app.state.job_store
             llm: LLMHandler = app.state.llm_handler
             executor: ThreadPoolExecutor = app.state.executor
 
-            await _ensure_initialized()
+            await _ensure_models_initialized(app.state)
             job_store.mark_running(job_id)
-            _update_local_cache_progress(job_id, 0.01, "running")
+            _update_progress_job_cache(
+                app_state=app.state,
+                store=store,
+                job_id=job_id,
+                progress=0.01,
+                stage="running",
+                map_status=_map_status,
+                result_key_prefix=RESULT_KEY_PREFIX,
+                result_expire_seconds=RESULT_EXPIRE_SECONDS,
+            )
 
             # Select DiT handler based on user's model choice
             # Default: use primary handler
@@ -678,7 +645,16 @@ def create_app() -> FastAPI:
                         last_progress["time"] = now
                         last_progress["stage"] = stage
                         job_store.update_progress(job_id, value_f, stage=stage)
-                        _update_local_cache_progress(job_id, value_f, stage)
+                        _update_progress_job_cache(
+                            app_state=app.state,
+                            store=store,
+                            job_id=job_id,
+                            progress=value_f,
+                            stage=stage,
+                            map_status=_map_status,
+                            result_key_prefix=RESULT_KEY_PREFIX,
+                            result_expire_seconds=RESULT_EXPIRE_SECONDS,
+                        )
 
                 if req.full_analysis_only:
                     store.update_progress_text(job_id, "Starting Deep Analysis...")
@@ -908,7 +884,16 @@ def create_app() -> FastAPI:
                 job_store.mark_succeeded(job_id, result)
 
                 # Update local cache
-                _update_local_cache(job_id, result, "succeeded")
+                _update_terminal_job_cache(
+                    app_state=app.state,
+                    store=store,
+                    job_id=job_id,
+                    result=result,
+                    status="succeeded",
+                    map_status=_map_status,
+                    result_key_prefix=RESULT_KEY_PREFIX,
+                    result_expire_seconds=RESULT_EXPIRE_SECONDS,
+                )
             except Exception as e:
                 error_traceback = traceback.format_exc()
                 print(f"[API Server] Job {job_id} FAILED: {e}")
@@ -916,7 +901,16 @@ def create_app() -> FastAPI:
                 job_store.mark_failed(job_id, error_traceback)
 
                 # Update local cache
-                _update_local_cache(job_id, None, "failed")
+                _update_terminal_job_cache(
+                    app_state=app.state,
+                    store=store,
+                    job_id=job_id,
+                    result=None,
+                    status="failed",
+                    map_status=_map_status,
+                    result_key_prefix=RESULT_KEY_PREFIX,
+                    result_expire_seconds=RESULT_EXPIRE_SECONDS,
+                )
             finally:
                 # Best-effort cache cleanup to reduce MPS memory fragmentation between jobs
                 try:
@@ -934,12 +928,15 @@ def create_app() -> FastAPI:
                     if app.state.recent_durations:
                         app.state.avg_job_seconds = sum(app.state.recent_durations) / len(app.state.recent_durations)
 
+        async def _cleanup_job_temp_files_for_job(job_id: str) -> None:
+            await _cleanup_job_temp_files_state(app.state, job_id)
+
         workers, cleanup_task = start_worker_tasks(
             app_state=app.state,
             store=store,
             worker_count=WORKER_COUNT,
             run_one_job=_run_one_job,
-            cleanup_job_temp_files=_cleanup_job_temp_files,
+            cleanup_job_temp_files=_cleanup_job_temp_files_for_job,
             cleanup_interval_seconds=JOB_STORE_CLEANUP_INTERVAL,
         )
         initialize_models_at_startup(
