@@ -43,6 +43,7 @@ from acestep.api.log_capture import install_log_capture
 from acestep.api.route_setup import configure_api_routes
 from acestep.api.server_cli import run_api_server_main
 from acestep.api.lifespan_runtime import initialize_lifespan_runtime
+from acestep.api.job_model_selection import select_generation_handler
 from acestep.api.job_runtime_state import (
     cleanup_job_temp_files as _cleanup_job_temp_files_state,
     ensure_models_initialized as _ensure_models_initialized,
@@ -250,39 +251,13 @@ def create_app() -> FastAPI:
                 result_expire_seconds=RESULT_EXPIRE_SECONDS,
             )
 
-            # Select DiT handler based on user's model choice
-            # Default: use primary handler
-            selected_handler: AceStepHandler = app.state.handler
-            selected_model_name = _get_model_name(app.state._config_path)
-
-            if req.model:
-                model_matched = False
-
-                # Check if it matches the second model
-                if app.state.handler2 and getattr(app.state, "_initialized2", False):
-                    model2_name = _get_model_name(app.state._config_path2)
-                    if req.model == model2_name:
-                        selected_handler = app.state.handler2
-                        selected_model_name = model2_name
-                        model_matched = True
-                        print(f"[API Server] Job {job_id}: Using second model: {model2_name}")
-
-                # Check if it matches the third model
-                if not model_matched and app.state.handler3 and getattr(app.state, "_initialized3", False):
-                    model3_name = _get_model_name(app.state._config_path3)
-                    if req.model == model3_name:
-                        selected_handler = app.state.handler3
-                        selected_model_name = model3_name
-                        model_matched = True
-                        print(f"[API Server] Job {job_id}: Using third model: {model3_name}")
-
-                if not model_matched:
-                    available_models = [_get_model_name(app.state._config_path)]
-                    if app.state.handler2 and getattr(app.state, "_initialized2", False):
-                        available_models.append(_get_model_name(app.state._config_path2))
-                    if app.state.handler3 and getattr(app.state, "_initialized3", False):
-                        available_models.append(_get_model_name(app.state._config_path3))
-                    print(f"[API Server] Job {job_id}: Model '{req.model}' not found in {available_models}, using primary: {selected_model_name}")
+            selected_handler, selected_model_name = select_generation_handler(
+                app_state=app.state,
+                requested_model=req.model,
+                get_model_name=_get_model_name,
+                job_id=job_id,
+                log_fn=print,
+            )
 
             # Use selected handler for generation
             h: AceStepHandler = selected_handler
