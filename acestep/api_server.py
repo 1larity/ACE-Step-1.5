@@ -43,6 +43,7 @@ from acestep.api.log_capture import install_log_capture
 from acestep.api.route_setup import configure_api_routes
 from acestep.api.server_cli import run_api_server_main
 from acestep.api.lifespan_runtime import initialize_lifespan_runtime
+from acestep.api.job_generation_setup import build_generation_setup
 from acestep.api.job_model_selection import select_generation_handler
 from acestep.api.job_llm_preparation import (
     ensure_llm_ready_for_request as _ensure_llm_ready_for_request,
@@ -98,8 +99,6 @@ from acestep.constants import (
     TASK_INSTRUCTIONS,
 )
 from acestep.inference import (
-    GenerationParams,
-    GenerationConfig,
     generate_music,
     create_sample,
     format_sample,
@@ -311,109 +310,28 @@ def create_app() -> FastAPI:
                 original_lyrics = prepared_inputs.original_lyrics
                 format_has_duration = prepared_inputs.format_has_duration
 
-                # Parse timesteps string to list of floats if provided
-                parsed_timesteps = _parse_timesteps(req.timesteps)
-
-                # Auto-select instruction based on task_type if user didn't provide custom instruction
-                # This matches gradio behavior which uses TASK_INSTRUCTIONS for each task type
-                instruction_to_use = req.instruction
-                if instruction_to_use == DEFAULT_DIT_INSTRUCTION and req.task_type in TASK_INSTRUCTIONS:
-                    raw_instruction = TASK_INSTRUCTIONS[req.task_type]
-
-                    if req.task_type == "complete":
-                         #  Use track_classes joined by pipes
-                         if req.track_classes:
-                             # Join list items: ["Drums", "Bass"] -> "DRUMS | BASS"
-                             classes_str = " | ".join([str(t).upper() for t in req.track_classes])
-                             # Use the raw instruction template from constants
-                             # Format: "Complete the track with {TRACK_CLASSES}:"
-                             instruction_to_use = raw_instruction.format(TRACK_CLASSES=classes_str)
-                         else:
-                             # Fallback if no classes provided
-                             instruction_to_use = TASK_INSTRUCTIONS.get("complete_default", raw_instruction)
-
-                    elif "{TRACK_NAME}" in raw_instruction and req.track_name:
-                        # Logic for extract/lego
-                        instruction_to_use = raw_instruction.format(TRACK_NAME=req.track_name.upper())
-                    else:
-                        instruction_to_use = raw_instruction
-
-                # Build GenerationParams using unified interface
-                # Note: thinking controls LM code generation, sample_mode only affects CoT metas
-                params = GenerationParams(
-                    task_type=req.task_type,
-                    instruction=instruction_to_use,
-                    reference_audio=req.reference_audio_path,
-                    src_audio=req.src_audio_path,
-                    audio_codes=req.audio_code_string if req.audio_code_string else "",
+                generation_setup = build_generation_setup(
+                    req=req,
                     caption=caption,
                     lyrics=lyrics,
-                    instrumental=_is_instrumental(lyrics),
-                    vocal_language=req.vocal_language,
                     bpm=bpm,
-                    keyscale=key_scale,
-                    timesignature=time_signature,
-                    duration=audio_duration if audio_duration else -1.0,
-                    inference_steps=req.inference_steps,
-                    seed=req.seed,
-                    guidance_scale=req.guidance_scale,
-                    use_adg=req.use_adg,
-                    cfg_interval_start=req.cfg_interval_start,
-                    cfg_interval_end=req.cfg_interval_end,
-                    shift=req.shift,
-                    infer_method=req.infer_method,
-                    timesteps=parsed_timesteps,
-                    repainting_start=req.repainting_start,
-                    repainting_end=req.repainting_end if req.repainting_end else -1,
-                    audio_cover_strength=req.audio_cover_strength,
-                    cover_noise_strength=req.cover_noise_strength,
-                    # LM parameters
-                    thinking=thinking,  # Use LM for code generation when thinking=True
-                    lm_temperature=req.lm_temperature,
-                    lm_cfg_scale=req.lm_cfg_scale,
+                    key_scale=key_scale,
+                    time_signature=time_signature,
+                    audio_duration=audio_duration,
+                    thinking=thinking,
+                    sample_mode=sample_mode,
+                    format_has_duration=format_has_duration,
+                    use_cot_caption=use_cot_caption,
+                    use_cot_language=use_cot_language,
                     lm_top_k=lm_top_k,
                     lm_top_p=lm_top_p,
-                    lm_negative_prompt=req.lm_negative_prompt,
-                    # use_cot_metas logic:
-                    # - sample_mode: metas already generated, skip Phase 1
-                    # - format with duration: metas already generated, skip Phase 1
-                    # - format without duration: need Phase 1 to generate duration
-                    # - no format: need Phase 1 to generate all metas
-                    use_cot_metas=not sample_mode and not format_has_duration,
-                    use_cot_caption=use_cot_caption,  # Use local var (may be auto-disabled)
-                    use_cot_language=use_cot_language,  # Use local var (may be auto-disabled)
-                    use_constrained_decoding=True,
+                    parse_timesteps=_parse_timesteps,
+                    is_instrumental=_is_instrumental,
+                    default_dit_instruction=DEFAULT_DIT_INSTRUCTION,
+                    task_instructions=TASK_INSTRUCTIONS,
                 )
-
-                # Build GenerationConfig - default to 2 audios like gradio_ui
-                batch_size = req.batch_size if req.batch_size is not None else 2
-
-                # Resolve seed(s) from req.seed into List[int] for GenerationConfig.seeds
-                resolved_seeds = None
-                if not req.use_random_seed and req.seed is not None:
-                    if isinstance(req.seed, int):
-                        if req.seed >= 0:
-                            resolved_seeds = [req.seed]
-                    elif isinstance(req.seed, str):
-                        resolved_seeds = []
-                        for s in req.seed.split(","):
-                            s = s.strip()
-                            if s and s != "-1":
-                                try:
-                                    resolved_seeds.append(int(float(s)))
-                                except (ValueError, TypeError):
-                                    pass
-                        if not resolved_seeds:
-                            resolved_seeds = None
-
-                config = GenerationConfig(
-                    batch_size=batch_size,
-                    allow_lm_batch=req.allow_lm_batch,
-                    use_random_seed=req.use_random_seed,
-                    seeds=resolved_seeds,
-                    audio_format=req.audio_format,
-                    constrained_decoding_debug=req.constrained_decoding_debug,
-                )
+                params = generation_setup.params
+                config = generation_setup.config
 
                 # Check LLM initialization status
                 llm_is_initialized = getattr(app.state, "_llm_initialized", False)
