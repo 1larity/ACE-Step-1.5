@@ -227,8 +227,6 @@ def create_app() -> FastAPI:
             ace_handler_cls=AceStepHandler,
             llm_handler_cls=LLMHandler,
         )
-        cache_root = runtime.cache_root
-        tmp_root = runtime.tmp_root
         handler = runtime.handler
         llm_handler = runtime.llm_handler
         handler2 = runtime.handler2
@@ -299,7 +297,6 @@ def create_app() -> FastAPI:
                 sample_mode = prepared_inputs.sample_mode
                 use_cot_caption = prepared_inputs.use_cot_caption
                 use_cot_language = prepared_inputs.use_cot_language
-                full_analysis_only = prepared_inputs.full_analysis_only
                 caption = prepared_inputs.caption
                 lyrics = prepared_inputs.lyrics
                 bpm = prepared_inputs.bpm
