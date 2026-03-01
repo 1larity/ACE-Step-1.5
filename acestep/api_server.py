@@ -44,6 +44,10 @@ from acestep.api.route_setup import configure_api_routes
 from acestep.api.server_cli import run_api_server_main
 from acestep.api.lifespan_runtime import initialize_lifespan_runtime
 from acestep.api.job_model_selection import select_generation_handler
+from acestep.api.job_llm_preparation import (
+    ensure_llm_ready_for_request as _ensure_llm_ready_for_request,
+    prepare_llm_generation_inputs as _prepare_llm_generation_inputs,
+)
 from acestep.api.job_result_payload import build_generation_success_response
 from acestep.api.job_runtime_state import (
     cleanup_job_temp_files as _cleanup_job_temp_files_state,
@@ -267,214 +271,45 @@ def create_app() -> FastAPI:
                 """Generate music using unified inference logic from acestep.inference"""
 
                 def _ensure_llm_ready() -> None:
-                    """Ensure LLM handler is initialized when needed"""
-                    with app.state._llm_init_lock:
-                        initialized = getattr(app.state, "_llm_initialized", False)
-                        had_error = getattr(app.state, "_llm_init_error", None)
-                        if initialized or had_error is not None:
-                            return
-                        print("[API Server] reloading.")
-
-                        # Check if lazy loading is disabled (GPU memory insufficient)
-                        if getattr(app.state, "_llm_lazy_load_disabled", False):
-                            app.state._llm_init_error = (
-                                "LLM not initialized at startup. To enable LLM, set ACESTEP_INIT_LLM=true "
-                                "in .env or environment variables. For this request, optional LLM features "
-                                "(use_cot_caption, use_cot_language) will be auto-disabled."
-                            )
-                            print("[API Server] LLM lazy load blocked: LLM was not initialized at startup")
-                            return
-
-                        # Respect ACESTEP_INIT_LLM=false even in lazy-load / --no-init mode
-                        init_llm_env = os.getenv("ACESTEP_INIT_LLM", "").strip().lower()
-                        if init_llm_env in {"0", "false", "no", "n", "off"}:
-                            app.state._llm_lazy_load_disabled = True
-                            app.state._llm_init_error = (
-                                "LLM disabled via ACESTEP_INIT_LLM=false. "
-                                "Optional LLM features (use_cot_caption, use_cot_language) will be auto-disabled."
-                            )
-                            print("[API Server] LLM lazy load blocked: ACESTEP_INIT_LLM=false")
-                            return
-
-                        project_root = _get_project_root()
-                        checkpoint_dir = os.path.join(project_root, "checkpoints")
-                        lm_model_path = (req.lm_model_path or os.getenv("ACESTEP_LM_MODEL_PATH") or "acestep-5Hz-lm-0.6B").strip()
-                        backend = (req.lm_backend or os.getenv("ACESTEP_LM_BACKEND") or "vllm").strip().lower()
-                        if backend not in {"vllm", "pt", "mlx"}:
-                            backend = "vllm"
-
-                        # Auto-download LM model if not present
-                        lm_model_name = _get_model_name(lm_model_path)
-                        if lm_model_name:
-                            try:
-                                _ensure_model_downloaded(lm_model_name, checkpoint_dir)
-                            except Exception as e:
-                                print(f"[API Server] Warning: Failed to download LM model {lm_model_name}: {e}")
-
-                        lm_device = os.getenv("ACESTEP_LM_DEVICE", os.getenv("ACESTEP_DEVICE", "auto"))
-                        lm_offload = _env_bool("ACESTEP_LM_OFFLOAD_TO_CPU", False)
-
-                        status, ok = llm.initialize(
-                            checkpoint_dir=checkpoint_dir,
-                            lm_model_path=lm_model_path,
-                            backend=backend,
-                            device=lm_device,
-                            offload_to_cpu=lm_offload,
-                            dtype=None,
-                        )
-                        if not ok:
-                            app.state._llm_init_error = status
-                        else:
-                            app.state._llm_initialized = True
-
-                # Normalize LM sampling parameters
-                lm_top_k = req.lm_top_k if req.lm_top_k and req.lm_top_k > 0 else 0
-                lm_top_p = req.lm_top_p if req.lm_top_p and req.lm_top_p < 1.0 else 0.9
-
-                # Determine if LLM is needed
-                thinking = bool(req.thinking)
-                sample_mode = bool(req.sample_mode)
-                has_sample_query = bool(req.sample_query and req.sample_query.strip())
-                use_format = bool(req.use_format)
-                use_cot_caption = bool(req.use_cot_caption)
-                use_cot_language = bool(req.use_cot_language)
-
-                full_analysis_only = bool(req.full_analysis_only)
-
-                # Unload LM for cover tasks on MPS to reduce memory; reload lazily when needed.
-                if req.task_type == "cover" and h.device == "mps":
-                    if getattr(app.state, "_llm_initialized", False) and getattr(llm, "llm_initialized", False):
-                        try:
-                            print("[API Server] unloading.")
-                            llm.unload()
-                            app.state._llm_initialized = False
-                            app.state._llm_init_error = None
-                        except Exception as e:
-                            print(f"[API Server] Failed to unload LM: {e}")
-
-                # LLM is REQUIRED for these features (fail if unavailable):
-                # - thinking mode (LM generates audio codes)
-                # - sample_mode (LM generates random caption/lyrics/metas)
-                # - sample_query/description (LM generates from description)
-                # - use_format (LM enhances caption/lyrics)
-                # - full_analysis_only (LM understands audio codes)
-                require_llm = thinking or sample_mode or has_sample_query or use_format or full_analysis_only
-
-                # LLM is OPTIONAL for these features (auto-disable if unavailable):
-                # - use_cot_caption or use_cot_language (LM enhances metadata)
-                want_llm = use_cot_caption or use_cot_language
-
-                # Check if LLM is available
-                llm_available = True
-                if require_llm or want_llm:
-                    _ensure_llm_ready()
-                    if getattr(app.state, "_llm_init_error", None):
-                        llm_available = False
-
-                # Fail if LLM is required but unavailable
-                if require_llm and not llm_available:
-                    raise RuntimeError(f"5Hz LM init failed: {app.state._llm_init_error}")
-
-                # Auto-disable optional LLM features if unavailable
-                if want_llm and not llm_available:
-                    if use_cot_caption or use_cot_language:
-                        print(f"[API Server] LLM unavailable, auto-disabling: use_cot_caption={use_cot_caption}->False, use_cot_language={use_cot_language}->False")
-                    use_cot_caption = False
-                    use_cot_language = False
-
-                # Handle sample mode or description: generate caption/lyrics/metas via LM
-                caption = req.prompt
-                lyrics = req.lyrics
-                bpm = req.bpm
-                key_scale = req.key_scale
-                time_signature = req.time_signature
-                audio_duration = req.audio_duration
-
-                # Save original user input for metas
-                original_prompt = req.prompt or ""
-                original_lyrics = req.lyrics or ""
-
-                if sample_mode or has_sample_query:
-                    # Parse description hints from sample_query (if provided)
-                    sample_query = req.sample_query if has_sample_query else "NO USER INPUT"
-                    parsed_language, parsed_instrumental = _parse_description_hints(sample_query)
-
-                    # Determine vocal_language with priority:
-                    # 1. User-specified vocal_language (if not default "en")
-                    # 2. Language parsed from description
-                    # 3. None (no constraint)
-                    if req.vocal_language and req.vocal_language not in ("en", "unknown", ""):
-                        sample_language = req.vocal_language
-                    else:
-                        sample_language = parsed_language
-
-                    sample_result = create_sample(
+                    _ensure_llm_ready_for_request(
+                        app_state=app.state,
                         llm_handler=llm,
-                        query=sample_query,
-                        instrumental=parsed_instrumental,
-                        vocal_language=sample_language,
-                        temperature=req.lm_temperature,
-                        top_k=lm_top_k if lm_top_k > 0 else None,
-                        top_p=lm_top_p if lm_top_p < 1.0 else None,
-                        use_constrained_decoding=True,
+                        req=req,
+                        get_project_root=_get_project_root,
+                        get_model_name=_get_model_name,
+                        ensure_model_downloaded=_ensure_model_downloaded,
+                        env_bool=_env_bool,
+                        log_fn=print,
                     )
 
-                    if not sample_result.success:
-                        raise RuntimeError(f"create_sample failed: {sample_result.error or sample_result.status_message}")
+                prepared_inputs = _prepare_llm_generation_inputs(
+                    app_state=app.state,
+                    llm_handler=llm,
+                    req=req,
+                    selected_handler_device=h.device,
+                    parse_description_hints=_parse_description_hints,
+                    create_sample_fn=create_sample,
+                    format_sample_fn=format_sample,
+                    ensure_llm_ready_fn=_ensure_llm_ready,
+                    log_fn=print,
+                )
 
-                    # Use generated sample data
-                    caption = sample_result.caption
-                    lyrics = sample_result.lyrics
-                    bpm = sample_result.bpm
-                    key_scale = sample_result.keyscale
-                    time_signature = sample_result.timesignature
-                    audio_duration = sample_result.duration
-
-                # Apply format_sample() if use_format is True and caption/lyrics are provided
-                format_has_duration = False
-
-                if req.use_format and (caption or lyrics):
-                    _ensure_llm_ready()
-                    if getattr(app.state, "_llm_init_error", None):
-                        raise RuntimeError(f"5Hz LM init failed (needed for format): {app.state._llm_init_error}")
-
-                    # Build user_metadata from request params (matching bot.py behavior)
-                    user_metadata_for_format = {}
-                    if bpm is not None:
-                        user_metadata_for_format['bpm'] = bpm
-                    if audio_duration is not None and float(audio_duration) > 0:
-                        user_metadata_for_format['duration'] = float(audio_duration)
-                    if key_scale:
-                        user_metadata_for_format['keyscale'] = key_scale
-                    if time_signature:
-                        user_metadata_for_format['timesignature'] = time_signature
-                    if req.vocal_language and req.vocal_language != "unknown":
-                        user_metadata_for_format['language'] = req.vocal_language
-
-                    format_result = format_sample(
-                        llm_handler=llm,
-                        caption=caption,
-                        lyrics=lyrics,
-                        user_metadata=user_metadata_for_format if user_metadata_for_format else None,
-                        temperature=req.lm_temperature,
-                        top_k=lm_top_k if lm_top_k > 0 else None,
-                        top_p=lm_top_p if lm_top_p < 1.0 else None,
-                        use_constrained_decoding=True,
-                    )
-
-                    if format_result.success:
-                        # Extract all formatted data (matching bot.py behavior)
-                        caption = format_result.caption or caption
-                        lyrics = format_result.lyrics or lyrics
-                        if format_result.duration:
-                            audio_duration = format_result.duration
-                            format_has_duration = True
-                        if format_result.bpm:
-                            bpm = format_result.bpm
-                        if format_result.keyscale:
-                            key_scale = format_result.keyscale
-                        if format_result.timesignature:
-                            time_signature = format_result.timesignature
+                lm_top_k = prepared_inputs.lm_top_k
+                lm_top_p = prepared_inputs.lm_top_p
+                thinking = prepared_inputs.thinking
+                sample_mode = prepared_inputs.sample_mode
+                use_cot_caption = prepared_inputs.use_cot_caption
+                use_cot_language = prepared_inputs.use_cot_language
+                full_analysis_only = prepared_inputs.full_analysis_only
+                caption = prepared_inputs.caption
+                lyrics = prepared_inputs.lyrics
+                bpm = prepared_inputs.bpm
+                key_scale = prepared_inputs.key_scale
+                time_signature = prepared_inputs.time_signature
+                audio_duration = prepared_inputs.audio_duration
+                original_prompt = prepared_inputs.original_prompt
+                original_lyrics = prepared_inputs.original_lyrics
+                format_has_duration = prepared_inputs.format_has_duration
 
                 # Parse timesteps string to list of floats if provided
                 parsed_timesteps = _parse_timesteps(req.timesteps)
