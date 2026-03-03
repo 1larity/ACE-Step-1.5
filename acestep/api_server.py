@@ -44,6 +44,7 @@ from acestep.api.route_setup import configure_api_routes
 from acestep.api.server_cli import run_api_server_main
 from acestep.api.lifespan_runtime import initialize_lifespan_runtime
 from acestep.api.job_analysis_runtime import maybe_handle_analysis_only_modes
+from acestep.api.job_generation_runtime import run_generation_with_optional_sequential_cover_mode
 from acestep.api.job_generation_setup import build_generation_setup
 from acestep.api.job_model_selection import select_generation_handler
 from acestep.api.job_llm_preparation import (
@@ -378,70 +379,19 @@ def create_app() -> FastAPI:
                 if analysis_result is not None:
                     return analysis_result
 
-                # Generate music using unified interface
-                sequential_runs = 1
-                if req.task_type == "cover" and h.device == "mps":
-                    # If user asked for multiple outputs, run sequentially on MPS to avoid OOM.
-                    if config.batch_size is not None and config.batch_size > 1:
-                        sequential_runs = int(config.batch_size)
-                        config.batch_size = 1
-                        print(f"[API Server] Job {job_id}: MPS cover sequential mode enabled (runs={sequential_runs})")
-
-                def _progress_for_slice(start: float, end: float):
-                    base = {"seen": False, "value": 0.0}
-                    def _cb(value: float, desc: str = "") -> None:
-                        try:
-                            value_f = max(0.0, min(1.0, float(value)))
-                        except Exception:
-                            value_f = 0.0
-                        if not base["seen"]:
-                            base["seen"] = True
-                            base["value"] = value_f
-                        # Normalize progress to avoid initial jump (e.g., 0.51 -> 0.0)
-                        if value_f <= base["value"]:
-                            norm = 0.0
-                        else:
-                            denom = max(1e-6, 1.0 - base["value"])
-                            norm = min(1.0, (value_f - base["value"]) / denom)
-                        mapped = start + (end - start) * norm
-                        _progress_cb(mapped, desc=desc)
-                    return _cb
-
-                aggregated_result = None
-                all_audios: List[Dict[str, Any]] = []
-                for run_idx in range(sequential_runs):
-                    if sequential_runs > 1:
-                        print(f"[API Server] Job {job_id}: Sequential cover run {run_idx + 1}/{sequential_runs}")
-                    if sequential_runs > 1:
-                        start = run_idx / sequential_runs
-                        end = (run_idx + 1) / sequential_runs
-                        progress_cb = _progress_for_slice(start, end)
-                    else:
-                        progress_cb = _progress_cb
-
-                    result = generate_music(
-                        dit_handler=h,
-                        llm_handler=llm_to_pass,
-                        params=params,
-                        config=config,
-                        save_dir=app.state.temp_audio_dir,
-                        progress=progress_cb,
-                    )
-                    if not result.success:
-                        raise RuntimeError(f"Music generation failed: {result.error or result.status_message}")
-
-                    if aggregated_result is None:
-                        aggregated_result = result
-                    all_audios.extend(result.audios)
-
-                # Use aggregated result with combined audios
-                if aggregated_result is None:
-                    raise RuntimeError("Music generation failed: no results")
-                aggregated_result.audios = all_audios
-                result = aggregated_result
-
-                if not result.success:
-                    raise RuntimeError(f"Music generation failed: {result.error or result.status_message}")
+                result = run_generation_with_optional_sequential_cover_mode(
+                    req=req,
+                    job_id=job_id,
+                    handler_device=h.device,
+                    config=config,
+                    params=params,
+                    dit_handler=h,
+                    llm_handler=llm_to_pass,
+                    temp_audio_dir=app.state.temp_audio_dir,
+                    generate_music_fn=generate_music,
+                    progress_cb=_progress_cb,
+                    log_fn=print,
+                )
 
                 lm_model_name = os.getenv("ACESTEP_LM_MODEL_PATH", "acestep-5Hz-lm-0.6B")
                 # Use selected_model_name (set at the beginning of _run_one_job)
