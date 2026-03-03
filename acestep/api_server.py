@@ -15,18 +15,14 @@ NOTE:
 
 from __future__ import annotations
 
-import asyncio
 import glob
 import json
 import os
 import sys
 import time
-import traceback
 import urllib.parse
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
-import torch
 from loguru import logger
 
 try:
@@ -44,6 +40,7 @@ from acestep.api.route_setup import configure_api_routes
 from acestep.api.server_cli import run_api_server_main
 from acestep.api.lifespan_runtime import initialize_lifespan_runtime
 from acestep.api.job_blocking_generation import run_blocking_generate
+from acestep.api.job_execution_runtime import run_one_job_runtime
 from acestep.api.job_model_selection import select_generation_handler
 from acestep.api.job_runtime_state import (
     cleanup_job_temp_files as _cleanup_job_temp_files_state,
@@ -231,44 +228,19 @@ def create_app() -> FastAPI:
         executor = runtime.executor
 
         async def _run_one_job(job_id: str, req: GenerateMusicRequest) -> None:
-            job_store: _JobStore = app.state.job_store
             llm: LLMHandler = app.state.llm_handler
-            executor: ThreadPoolExecutor = app.state.executor
 
-            await _ensure_models_initialized(app.state)
-            job_store.mark_running(job_id)
-            _update_progress_job_cache(
-                app_state=app.state,
-                store=store,
-                job_id=job_id,
-                progress=0.01,
-                stage="running",
-                map_status=_map_status,
-                result_key_prefix=RESULT_KEY_PREFIX,
-                result_expire_seconds=RESULT_EXPIRE_SECONDS,
-            )
-
-            selected_handler, selected_model_name = select_generation_handler(
-                app_state=app.state,
-                requested_model=req.model,
-                get_model_name=_get_model_name,
-                job_id=job_id,
-                log_fn=print,
-            )
-
-            # Use selected handler for generation
-            h: AceStepHandler = selected_handler
-
-            def _blocking_generate() -> Dict[str, Any]:
-                """Generate music payload for a job in executor thread."""
-
+            def _build_blocking_result(
+                selected_handler: AceStepHandler,
+                selected_model_name: str,
+            ) -> Dict[str, Any]:
                 return run_blocking_generate(
                     app_state=app.state,
                     req=req,
                     job_id=job_id,
                     store=store,
                     llm_handler=llm,
-                    selected_handler=h,
+                    selected_handler=selected_handler,
                     selected_model_name=selected_model_name,
                     map_status=_map_status,
                     result_key_prefix=RESULT_KEY_PREFIX,
@@ -290,56 +262,22 @@ def create_app() -> FastAPI:
                     log_fn=print,
                 )
 
-            t0 = time.time()
-            try:
-                loop = asyncio.get_running_loop()
-                result = await loop.run_in_executor(executor, _blocking_generate)
-                job_store.mark_succeeded(job_id, result)
-
-                # Update local cache
-                _update_terminal_job_cache(
-                    app_state=app.state,
-                    store=store,
-                    job_id=job_id,
-                    result=result,
-                    status="succeeded",
-                    map_status=_map_status,
-                    result_key_prefix=RESULT_KEY_PREFIX,
-                    result_expire_seconds=RESULT_EXPIRE_SECONDS,
-                )
-            except Exception as e:
-                error_traceback = traceback.format_exc()
-                print(f"[API Server] Job {job_id} FAILED: {e}")
-                print(f"[API Server] Traceback:\n{error_traceback}")
-                job_store.mark_failed(job_id, error_traceback)
-
-                # Update local cache
-                _update_terminal_job_cache(
-                    app_state=app.state,
-                    store=store,
-                    job_id=job_id,
-                    result=None,
-                    status="failed",
-                    map_status=_map_status,
-                    result_key_prefix=RESULT_KEY_PREFIX,
-                    result_expire_seconds=RESULT_EXPIRE_SECONDS,
-                )
-            finally:
-                # Best-effort cache cleanup to reduce MPS memory fragmentation between jobs
-                try:
-                    if hasattr(h, "_empty_cache"):
-                        h._empty_cache()
-                    else:
-                        import torch
-                        if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
-                            torch.mps.empty_cache()
-                except Exception:
-                    pass
-                dt = max(0.0, time.time() - t0)
-                async with app.state.stats_lock:
-                    app.state.recent_durations.append(dt)
-                    if app.state.recent_durations:
-                        app.state.avg_job_seconds = sum(app.state.recent_durations) / len(app.state.recent_durations)
+            await run_one_job_runtime(
+                app_state=app.state,
+                store=store,
+                job_id=job_id,
+                req=req,
+                ensure_models_initialized_fn=_ensure_models_initialized,
+                select_generation_handler_fn=select_generation_handler,
+                get_model_name=_get_model_name,
+                build_blocking_result_fn=_build_blocking_result,
+                update_progress_job_cache_fn=_update_progress_job_cache,
+                update_terminal_job_cache_fn=_update_terminal_job_cache,
+                map_status=_map_status,
+                result_key_prefix=RESULT_KEY_PREFIX,
+                result_expire_seconds=RESULT_EXPIRE_SECONDS,
+                log_fn=print,
+            )
 
         async def _cleanup_job_temp_files_for_job(job_id: str) -> None:
             await _cleanup_job_temp_files_state(app.state, job_id)
