@@ -43,15 +43,8 @@ from acestep.api.log_capture import install_log_capture
 from acestep.api.route_setup import configure_api_routes
 from acestep.api.server_cli import run_api_server_main
 from acestep.api.lifespan_runtime import initialize_lifespan_runtime
-from acestep.api.job_analysis_runtime import maybe_handle_analysis_only_modes
-from acestep.api.job_generation_runtime import run_generation_with_optional_sequential_cover_mode
-from acestep.api.job_generation_setup import build_generation_setup
+from acestep.api.job_blocking_generation import run_blocking_generate
 from acestep.api.job_model_selection import select_generation_handler
-from acestep.api.job_llm_preparation import (
-    ensure_llm_ready_for_request as _ensure_llm_ready_for_request,
-    prepare_llm_generation_inputs as _prepare_llm_generation_inputs,
-)
-from acestep.api.job_result_payload import build_generation_success_response
 from acestep.api.job_runtime_state import (
     cleanup_job_temp_files as _cleanup_job_temp_files_state,
     ensure_models_initialized as _ensure_models_initialized,
@@ -267,150 +260,34 @@ def create_app() -> FastAPI:
             h: AceStepHandler = selected_handler
 
             def _blocking_generate() -> Dict[str, Any]:
-                """Generate music using unified inference logic from acestep.inference"""
+                """Generate music payload for a job in executor thread."""
 
-                def _ensure_llm_ready() -> None:
-                    _ensure_llm_ready_for_request(
-                        app_state=app.state,
-                        llm_handler=llm,
-                        req=req,
-                        get_project_root=_get_project_root,
-                        get_model_name=_get_model_name,
-                        ensure_model_downloaded=_ensure_model_downloaded,
-                        env_bool=_env_bool,
-                        log_fn=print,
-                    )
-
-                prepared_inputs = _prepare_llm_generation_inputs(
+                return run_blocking_generate(
                     app_state=app.state,
+                    req=req,
+                    job_id=job_id,
+                    store=store,
                     llm_handler=llm,
-                    req=req,
-                    selected_handler_device=h.device,
+                    selected_handler=h,
+                    selected_model_name=selected_model_name,
+                    map_status=_map_status,
+                    result_key_prefix=RESULT_KEY_PREFIX,
+                    result_expire_seconds=RESULT_EXPIRE_SECONDS,
+                    get_project_root=_get_project_root,
+                    get_model_name=_get_model_name,
+                    ensure_model_downloaded=_ensure_model_downloaded,
+                    env_bool=_env_bool,
                     parse_description_hints=_parse_description_hints,
-                    create_sample_fn=create_sample,
-                    format_sample_fn=format_sample,
-                    ensure_llm_ready_fn=_ensure_llm_ready,
-                    log_fn=print,
-                )
-
-                lm_top_k = prepared_inputs.lm_top_k
-                lm_top_p = prepared_inputs.lm_top_p
-                thinking = prepared_inputs.thinking
-                sample_mode = prepared_inputs.sample_mode
-                use_cot_caption = prepared_inputs.use_cot_caption
-                use_cot_language = prepared_inputs.use_cot_language
-                caption = prepared_inputs.caption
-                lyrics = prepared_inputs.lyrics
-                bpm = prepared_inputs.bpm
-                key_scale = prepared_inputs.key_scale
-                time_signature = prepared_inputs.time_signature
-                audio_duration = prepared_inputs.audio_duration
-                original_prompt = prepared_inputs.original_prompt
-                original_lyrics = prepared_inputs.original_lyrics
-                format_has_duration = prepared_inputs.format_has_duration
-
-                generation_setup = build_generation_setup(
-                    req=req,
-                    caption=caption,
-                    lyrics=lyrics,
-                    bpm=bpm,
-                    key_scale=key_scale,
-                    time_signature=time_signature,
-                    audio_duration=audio_duration,
-                    thinking=thinking,
-                    sample_mode=sample_mode,
-                    format_has_duration=format_has_duration,
-                    use_cot_caption=use_cot_caption,
-                    use_cot_language=use_cot_language,
-                    lm_top_k=lm_top_k,
-                    lm_top_p=lm_top_p,
                     parse_timesteps=_parse_timesteps,
                     is_instrumental=_is_instrumental,
+                    create_sample_fn=create_sample,
+                    format_sample_fn=format_sample,
+                    generate_music_fn=generate_music,
                     default_dit_instruction=DEFAULT_DIT_INSTRUCTION,
                     task_instructions=TASK_INSTRUCTIONS,
-                )
-                params = generation_setup.params
-                config = generation_setup.config
-
-                # Check LLM initialization status
-                llm_is_initialized = getattr(app.state, "_llm_initialized", False)
-                llm_to_pass = llm if llm_is_initialized else None
-
-                # Progress callback for API polling
-                last_progress = {"value": -1.0, "time": 0.0, "stage": ""}
-
-                def _progress_cb(value: float, desc: str = "") -> None:
-                    now = time.time()
-                    try:
-                        value_f = max(0.0, min(1.0, float(value)))
-                    except Exception:
-                        value_f = 0.0
-                    stage = desc or last_progress["stage"] or "running"
-                    # Throttle updates to avoid excessive cache writes
-                    if (
-                        value_f - last_progress["value"] >= 0.01
-                        or stage != last_progress["stage"]
-                        or (now - last_progress["time"]) >= 0.5
-                    ):
-                        last_progress["value"] = value_f
-                        last_progress["time"] = now
-                        last_progress["stage"] = stage
-                        job_store.update_progress(job_id, value_f, stage=stage)
-                        _update_progress_job_cache(
-                            app_state=app.state,
-                            store=store,
-                            job_id=job_id,
-                            progress=value_f,
-                            stage=stage,
-                            map_status=_map_status,
-                            result_key_prefix=RESULT_KEY_PREFIX,
-                            result_expire_seconds=RESULT_EXPIRE_SECONDS,
-                        )
-
-                analysis_result = maybe_handle_analysis_only_modes(
-                    req=req,
-                    params=params,
-                    config=config,
-                    llm_handler=llm_to_pass,
-                    dit_handler=h,
-                    store=store,
-                    job_id=job_id,
-                )
-                if analysis_result is not None:
-                    return analysis_result
-
-                result = run_generation_with_optional_sequential_cover_mode(
-                    req=req,
-                    job_id=job_id,
-                    handler_device=h.device,
-                    config=config,
-                    params=params,
-                    dit_handler=h,
-                    llm_handler=llm_to_pass,
-                    temp_audio_dir=app.state.temp_audio_dir,
-                    generate_music_fn=generate_music,
-                    progress_cb=_progress_cb,
+                    build_generation_info_fn=_build_generation_info,
+                    path_to_audio_url_fn=_path_to_audio_url,
                     log_fn=print,
-                )
-
-                lm_model_name = os.getenv("ACESTEP_LM_MODEL_PATH", "acestep-5Hz-lm-0.6B")
-                # Use selected_model_name (set at the beginning of _run_one_job)
-                dit_model_name = selected_model_name
-
-                return build_generation_success_response(
-                    result=result,
-                    params=params,
-                    bpm=bpm,
-                    audio_duration=audio_duration,
-                    key_scale=key_scale,
-                    time_signature=time_signature,
-                    original_prompt=original_prompt,
-                    original_lyrics=original_lyrics,
-                    inference_steps=req.inference_steps,
-                    path_to_audio_url=_path_to_audio_url,
-                    build_generation_info=_build_generation_info,
-                    lm_model_name=lm_model_name,
-                    dit_model_name=dit_model_name,
                 )
 
             t0 = time.time()
