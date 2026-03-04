@@ -1,4 +1,4 @@
-"""Dataset-related training API request models and route registration."""
+"""Dataset-related training API route registration."""
 
 from __future__ import annotations
 
@@ -10,128 +10,19 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException
 from loguru import logger
-from pydantic import BaseModel, Field, root_validator
 
 from acestep.api import train_api_models
+from acestep.api.train_api_dataset_models import (
+    AutoLabelRequest,
+    PreprocessDatasetRequest,
+    SaveDatasetRequest,
+    UpdateSampleRequest,
+    _serialize_samples,
+)
+from acestep.api.train_api_dataset_scan_load_routes import register_training_dataset_scan_load_routes
 from acestep.api.train_api_runtime import RuntimeComponentManager
 from acestep.handler import AceStepHandler
 from acestep.llm_inference import LLMHandler
-
-
-class ScanDirectoryRequest(BaseModel):
-    """Request payload for scanning a directory into a dataset."""
-
-    audio_dir: str = Field(..., description="Directory path to scan for audio files")
-    dataset_name: str = Field(default="my_lora_dataset", description="Dataset name")
-    custom_tag: str = Field(default="", description="Custom activation tag")
-    tag_position: str = Field(default="replace", description="Tag position: prepend/append/replace")
-    all_instrumental: bool = Field(default=True, description="All tracks instrumental")
-
-
-class LoadDatasetRequest(BaseModel):
-    """Request payload for loading an existing dataset JSON file."""
-
-    dataset_path: str = Field(..., description="Path to dataset JSON file")
-
-
-class AutoLabelRequest(BaseModel):
-    """Request payload for auto-labeling dataset samples."""
-
-    skip_metas: bool = Field(default=False, description="Skip BPM/Key/TimeSig generation")
-    format_lyrics: bool = Field(default=False, description="Format user lyrics via LLM")
-    transcribe_lyrics: bool = Field(default=False, description="Transcribe lyrics from audio")
-    only_unlabeled: bool = Field(default=False, description="Only label unlabeled samples")
-
-    lm_model_path: Optional[str] = Field(
-        default=None,
-        description="Optional LM model path to use for labeling (temporary switch)",
-    )
-
-    save_path: Optional[str] = Field(
-        default=None,
-        description="Optional dataset JSON path to persist progress during auto-label",
-    )
-
-    chunk_size: int = Field(default=16, ge=1, description="Chunk size for batch audio encoding")
-    batch_size: int = Field(default=1, ge=1, description="Batch size for batch audio encoding")
-
-    @root_validator(pre=True)
-    def _backward_compatible_field_names(cls, values: Dict[str, Any]):
-        """Map legacy payload fields to current request field names."""
-
-        if values is None:
-            return values
-
-        if "chunk_size" not in values or values.get("chunk_size") is None:
-            for key in ("hunk_size", "hunksize"):
-                if key in values and values.get(key) is not None:
-                    values["chunk_size"] = values[key]
-                    break
-
-        if "batch_size" not in values or values.get("batch_size") is None:
-            for key in ("batchsize",):
-                if key in values and values.get(key) is not None:
-                    values["batch_size"] = values[key]
-                    break
-
-        return values
-
-
-class SaveDatasetRequest(BaseModel):
-    """Request payload for persisting current dataset state."""
-
-    save_path: str = Field(..., description="Path to save dataset JSON")
-    dataset_name: str = Field(default="my_lora_dataset", description="Dataset name")
-    custom_tag: Optional[str] = Field(default=None, description="Custom activation tag")
-    tag_position: Optional[str] = Field(default=None, description="Tag position: prepend/append/replace")
-    all_instrumental: Optional[bool] = Field(default=None, description="All tracks instrumental")
-    genre_ratio: Optional[int] = Field(default=None, ge=0, le=100, description="Genre vs caption ratio")
-
-
-class UpdateSampleRequest(BaseModel):
-    """Request payload for updating a single dataset sample."""
-
-    sample_idx: int = Field(..., ge=0, description="Sample index")
-    caption: str = Field(default="", description="Music description")
-    genre: str = Field(default="", description="Genre tags")
-    prompt_override: Optional[str] = Field(default=None, description="caption/genre/None")
-    lyrics: str = Field(default="[Instrumental]", description="Lyrics")
-    bpm: Optional[int] = Field(default=None, description="BPM")
-    keyscale: str = Field(default="", description="Musical key")
-    timesignature: str = Field(default="", description="Time signature")
-    language: str = Field(default="unknown", description="Vocal language")
-    is_instrumental: bool = Field(default=True, description="Instrumental track")
-
-
-class PreprocessDatasetRequest(BaseModel):
-    """Request payload for dataset tensor preprocessing."""
-
-    output_dir: str = Field(..., description="Output directory for preprocessed tensors")
-    skip_existing: bool = Field(default=False, description="Skip tensors that already exist (by sample id filename)")
-
-
-def _serialize_samples(builder: Any) -> list[Dict[str, Any]]:
-    """Return stable sample payload list for dataset endpoints."""
-
-    return [
-        {
-            "index": i,
-            "filename": sample.filename,
-            "audio_path": sample.audio_path,
-            "duration": sample.duration,
-            "caption": sample.caption,
-            "genre": sample.genre,
-            "prompt_override": sample.prompt_override,
-            "lyrics": sample.lyrics,
-            "bpm": sample.bpm,
-            "keyscale": sample.keyscale,
-            "timesignature": sample.timesignature,
-            "language": sample.language,
-            "is_instrumental": sample.is_instrumental,
-            "labeled": sample.labeled,
-        }
-        for i, sample in enumerate(builder.samples)
-    ]
 
 
 def register_training_dataset_routes(
@@ -144,88 +35,11 @@ def register_training_dataset_routes(
 ) -> None:
     """Register dataset APIs used by training workflows."""
 
-    @app.post("/v1/dataset/scan")
-    async def scan_dataset_directory(request: ScanDirectoryRequest, _: None = Depends(verify_api_key)):
-        """Scan directory for audio files and create dataset."""
-
-        from acestep.training.dataset_builder import DatasetBuilder
-
-        try:
-            builder = DatasetBuilder()
-            builder.metadata.name = request.dataset_name
-            builder.metadata.custom_tag = request.custom_tag
-            builder.metadata.tag_position = request.tag_position
-            builder.metadata.all_instrumental = request.all_instrumental
-
-            samples, status = builder.scan_directory(request.audio_dir.strip())
-
-            if not samples:
-                return wrap_response(None, code=400, error=status)
-
-            builder.set_all_instrumental(request.all_instrumental)
-            if request.custom_tag:
-                builder.set_custom_tag(request.custom_tag, request.tag_position)
-
-            app.state.dataset_builder = builder
-            app.state.dataset_json_path = os.path.join(request.audio_dir.strip(), f"{builder.metadata.name}.json")
-
-            return wrap_response(
-                {
-                    "message": status,
-                    "num_samples": len(samples),
-                    "samples": _serialize_samples(builder),
-                }
-            )
-        except Exception as exc:
-            return wrap_response(None, code=500, error=f"Scan failed: {exc}")
-
-    @app.post("/v1/dataset/load")
-    async def load_dataset(request: LoadDatasetRequest, _: None = Depends(verify_api_key)):
-        """Load existing dataset from JSON file."""
-
-        from acestep.training.dataset_builder import DatasetBuilder
-
-        try:
-            builder = DatasetBuilder()
-            samples, status = builder.load_dataset(request.dataset_path.strip())
-
-            if not samples:
-                return wrap_response(
-                    {
-                        "message": status,
-                        "dataset_name": "",
-                        "num_samples": 0,
-                        "labeled_count": 0,
-                        "samples": [],
-                    },
-                    code=400,
-                    error=status,
-                )
-
-            app.state.dataset_builder = builder
-
-            return wrap_response(
-                {
-                    "message": status,
-                    "dataset_name": builder.metadata.name,
-                    "num_samples": len(samples),
-                    "labeled_count": builder.get_labeled_count(),
-                    "samples": _serialize_samples(builder),
-                }
-            )
-        except Exception as exc:
-            error_msg = f"Load failed: {exc}"
-            return wrap_response(
-                {
-                    "message": error_msg,
-                    "dataset_name": "",
-                    "num_samples": 0,
-                    "labeled_count": 0,
-                    "samples": [],
-                },
-                code=500,
-                error=error_msg,
-            )
+    register_training_dataset_scan_load_routes(
+        app=app,
+        verify_api_key=verify_api_key,
+        wrap_response=wrap_response,
+    )
 
     @app.post("/v1/dataset/auto_label")
     async def auto_label_dataset(request: AutoLabelRequest, _: None = Depends(verify_api_key)):
