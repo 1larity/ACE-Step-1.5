@@ -168,7 +168,7 @@ class TrainApiDatasetServiceHttpTests(unittest.TestCase):
         return TestClient(app), builder
 
     @mock.patch(
-        "acestep.api.train_api_dataset_auto_label_routes.RuntimeComponentManager",
+        "acestep.api.train_api_dataset_auto_label_sync_route.RuntimeComponentManager",
         new=_RuntimeComponentManager,
     )
     def test_auto_label_accepts_legacy_alias_fields(self) -> None:
