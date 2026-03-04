@@ -6,7 +6,9 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
 import time
+import tempfile
 import unittest
+from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.testclient import TestClient
@@ -42,7 +44,7 @@ class _Sample:
         """Initialize sample fields and deterministic defaults."""
 
         self.filename = "sample.wav"
-        self.audio_path = "/tmp/sample.wav"
+        self.audio_path = str(Path(tempfile.gettempdir()) / "sample.wav")
         self.duration = 10.0
         self.caption = caption
         self.genre = "electronic"

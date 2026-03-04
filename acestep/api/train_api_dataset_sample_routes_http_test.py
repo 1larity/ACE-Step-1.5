@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
+import tempfile
 import unittest
+from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.testclient import TestClient
@@ -31,7 +33,7 @@ class _Sample:
         """Initialize default sample fields."""
 
         self.filename = "sample.wav"
-        self.audio_path = "/tmp/sample.wav"
+        self.audio_path = str(Path(tempfile.gettempdir()) / "sample.wav")
         self.duration = 10.0
         self.caption = "cap"
         self.genre = "electronic"

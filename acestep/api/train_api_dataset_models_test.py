@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from acestep.api.train_api_dataset_models import AutoLabelRequest, _serialize_samples
 
@@ -55,6 +57,8 @@ class _Builder:
 class TrainApiDatasetModelsTests(unittest.TestCase):
     """Behavior tests for extracted request models and serializers."""
 
+    _TEST_AUDIO_PATH = str(Path(tempfile.gettempdir()) / "song.wav")
+
     def test_auto_label_request_maps_hunk_size_alias(self) -> None:
         """``hunk_size`` payload key should populate ``chunk_size``."""
 
@@ -87,7 +91,7 @@ class TrainApiDatasetModelsTests(unittest.TestCase):
             samples=[
                 _Sample(
                     filename="song.wav",
-                    audio_path="/tmp/song.wav",
+                    audio_path=self._TEST_AUDIO_PATH,
                     duration=12.5,
                     caption="bright synthwave",
                     genre="synthwave",
@@ -107,7 +111,7 @@ class TrainApiDatasetModelsTests(unittest.TestCase):
         self.assertEqual(1, len(payload))
         self.assertEqual(0, payload[0]["index"])
         self.assertEqual("song.wav", payload[0]["filename"])
-        self.assertEqual("/tmp/song.wav", payload[0]["audio_path"])
+        self.assertEqual(self._TEST_AUDIO_PATH, payload[0]["audio_path"])
         self.assertEqual(12.5, payload[0]["duration"])
         self.assertEqual("bright synthwave", payload[0]["caption"])
         self.assertEqual("synthwave", payload[0]["genre"])

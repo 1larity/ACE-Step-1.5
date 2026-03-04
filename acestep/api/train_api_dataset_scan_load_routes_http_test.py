@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 import sys
+import tempfile
 import types
 import unittest
 from unittest import mock
+from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.testclient import TestClient
@@ -34,7 +36,7 @@ class _Sample:
         """Initialize fields read by ``_serialize_samples``."""
 
         self.filename = "sample.wav"
-        self.audio_path = "/tmp/sample.wav"
+        self.audio_path = str(Path(tempfile.gettempdir()) / "sample.wav")
         self.duration = 8.0
         self.caption = caption
         self.genre = "electronic"

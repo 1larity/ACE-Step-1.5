@@ -5,8 +5,10 @@ from __future__ import annotations
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
+import tempfile
 import unittest
 from unittest import mock
+from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.testclient import TestClient
@@ -41,7 +43,7 @@ class _Sample:
         """Initialize sample fields consumed by dataset route handlers."""
 
         self.filename = "sample.wav"
-        self.audio_path = "/tmp/sample.wav"
+        self.audio_path = str(Path(tempfile.gettempdir()) / "sample.wav")
         self.duration = 10.0
         self.caption = caption
         self.genre = "electronic"
