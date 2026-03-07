@@ -43,6 +43,7 @@ os.environ["TORCHAUDIO_USE_BACKEND"] = "ffmpeg"
 
 try:
     # When executed as a module: `python -m acestep.acestep_v15_pipeline`
+    from .cli_args import parse_quantization_arg
     from .handler import AceStepHandler
     from .llm_inference import LLMHandler
     from .dataset_handler import DatasetHandler
@@ -63,6 +64,7 @@ except ImportError:
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
+    from acestep.cli_args import parse_quantization_arg
     from acestep.handler import AceStepHandler
     from acestep.llm_inference import LLMHandler
     from acestep.dataset_handler import DatasetHandler
@@ -312,10 +314,12 @@ def main():
     )
     parser.add_argument(
         "--quantization",
-        type=str,
+        type=parse_quantization_arg,
         default=_default_quantization,
-        choices=["int8_weight_only", "int4_weight_only", None],
-        help=f"DiT quantization method (default: {_default_quantization}, auto-detected based on GPU tier)",
+        help=(
+            "DiT quantization method: int8_weight_only, int4_weight_only, or none "
+            f"(default: {_default_quantization}, auto-detected based on GPU tier)"
+        ),
     )
     parser.add_argument(
         "--download-source",
