@@ -550,6 +550,53 @@ class ProgressProfileLoggingTests(unittest.TestCase):
         info_mock.assert_not_called()
 
 
+class InternalFallbackControlsTests(unittest.TestCase):
+    """Verify internal fallback controls and tunable fallback-step resolution."""
+
+    _GM_MOD = GENERATE_MUSIC_MODULE
+
+    def test_generate_music_rejects_unknown_keyword_arguments(self):
+        """It raises TypeError for unexpected kwargs instead of silently ignoring them."""
+        host = _Host()
+        with self.assertRaises(TypeError):
+            host.generate_music(captions="cap", lyrics="lyr", unknown_option=True)
+
+    def test_extract_internal_fallback_flags_defaults_and_overrides(self):
+        """It reads internal fallback guard kwargs and rejects unexpected internal keys."""
+        host = _Host()
+        internal_kwargs = {"_allow_cpu_device_fallback": False}
+        flags = host._extract_internal_fallback_flags(internal_kwargs)
+        self.assertEqual(flags, (True, True, False))
+        self.assertEqual(internal_kwargs, {})
+
+        with self.assertRaises(TypeError):
+            host._extract_internal_fallback_flags({"_bad_internal_key": True})
+
+    def test_resolve_quantized_stability_fallback_steps_uses_default_tuning(self):
+        """It preserves the legacy default fallback-step tuning when no env override is set."""
+        host = _Host()
+        with patch.dict(os.environ, {}, clear=False):
+            self.assertEqual(host._resolve_quantized_stability_fallback_steps(8), 6)
+            self.assertEqual(host._resolve_quantized_stability_fallback_steps(5), 5)
+            self.assertEqual(host._resolve_quantized_stability_fallback_steps(3), 4)
+
+    def test_resolve_quantized_stability_fallback_steps_accepts_valid_env_override(self):
+        """It honors valid fallback-step overrides and clamps values above inference steps."""
+        host = _Host()
+        with patch.dict(os.environ, {"ACESTEP_STABILITY_FALLBACK_STEPS": "5"}, clear=False):
+            self.assertEqual(host._resolve_quantized_stability_fallback_steps(8), 5)
+        with patch.dict(os.environ, {"ACESTEP_STABILITY_FALLBACK_STEPS": "10"}, clear=False):
+            self.assertEqual(host._resolve_quantized_stability_fallback_steps(8), 8)
+
+    def test_resolve_quantized_stability_fallback_steps_falls_back_on_invalid_override(self):
+        """It ignores invalid fallback-step overrides and keeps legacy default behavior."""
+        host = _Host()
+        with patch.dict(os.environ, {"ACESTEP_STABILITY_FALLBACK_STEPS": "abc"}, clear=False):
+            self.assertEqual(host._resolve_quantized_stability_fallback_steps(8), 6)
+        with patch.dict(os.environ, {"ACESTEP_STABILITY_FALLBACK_STEPS": "0"}, clear=False):
+            self.assertEqual(host._resolve_quantized_stability_fallback_steps(8), 6)
+
+
 class VramPreflightCheckTests(unittest.TestCase):
     """Verify ``_vram_preflight_check`` respects CPU offload mode."""
 

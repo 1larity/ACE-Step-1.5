@@ -8,7 +8,7 @@ import gc
 import os
 import time
 import traceback
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from loguru import logger
@@ -171,6 +171,71 @@ class GenerateMusicMixin:
             return False
         return torch.cuda.is_available()
 
+    @staticmethod
+    def _extract_internal_fallback_flags(internal_kwargs: Dict[str, Any]) -> Tuple[bool, bool, bool]:
+        """Extract internal recursion-guard flags from kwargs.
+
+        These guards are intentionally treated as internal controls and should
+        not appear as explicit public API parameters.
+
+        Args:
+            internal_kwargs: Extra kwargs passed into ``generate_music``.
+
+        Returns:
+            Tuple containing ``(allow_dequant, allow_quantized_mode, allow_cpu_fallback)``.
+
+        Raises:
+            TypeError: If unexpected kwargs are provided.
+        """
+        allow_dequant = bool(internal_kwargs.pop("_allow_dequant_fallback", True))
+        allow_quantized_mode = bool(internal_kwargs.pop("_allow_quantized_mode_fallback", True))
+        allow_cpu_fallback = bool(internal_kwargs.pop("_allow_cpu_device_fallback", True))
+        if internal_kwargs:
+            unexpected = ", ".join(sorted(internal_kwargs))
+            raise TypeError(f"generate_music() got unexpected keyword argument(s): {unexpected}")
+        return allow_dequant, allow_quantized_mode, allow_cpu_fallback
+
+    @staticmethod
+    def _resolve_quantized_stability_fallback_steps(inference_steps: int) -> int:
+        """Resolve fallback diffusion steps for quantized stability retries.
+
+        Default behavior preserves legacy tuning (clamped into ``[4, 6]`` and
+        bounded by requested ``inference_steps``). An explicit env override can
+        be used for experimentation on edge hardware.
+        """
+        default_steps = max(4, min(inference_steps, 6))
+        raw_override = os.environ.get("ACESTEP_STABILITY_FALLBACK_STEPS", "").strip()
+        if not raw_override:
+            return default_steps
+        try:
+            requested = int(raw_override)
+        except ValueError:
+            logger.warning(
+                "[generate_music] Invalid ACESTEP_STABILITY_FALLBACK_STEPS='{}'; using default {}.",
+                raw_override,
+                default_steps,
+            )
+            return default_steps
+
+        if requested < 1:
+            logger.warning(
+                "[generate_music] ACESTEP_STABILITY_FALLBACK_STEPS must be >=1 (got {}); "
+                "using default {}.",
+                requested,
+                default_steps,
+            )
+            return default_steps
+        resolved = min(requested, max(1, inference_steps))
+        if resolved != requested:
+            logger.info(
+                "[generate_music] Clamped ACESTEP_STABILITY_FALLBACK_STEPS from {} to {} "
+                "(requested inference_steps={}).",
+                requested,
+                resolved,
+                inference_steps,
+            )
+        return resolved
+
     def _log_generation_progress_profile(
         self,
         *,
@@ -269,9 +334,7 @@ class GenerateMusicMixin:
         latent_rescale: float = 1.0,
         chunk_mask_mode: str = "auto",
         progress=None,
-        _allow_dequant_fallback: bool = True,
-        _allow_quantized_mode_fallback: bool = True,
-        _allow_cpu_device_fallback: bool = True,
+        **internal_kwargs: Any,
     ) -> Dict[str, Any]:
         """Generate audio from text/reference inputs and return response payload.
 
@@ -299,6 +362,11 @@ class GenerateMusicMixin:
             returned error payload.
         """
         progress = self._resolve_generate_music_progress(progress)
+        (
+            allow_dequant_fallback,
+            allow_quantized_mode_fallback,
+            allow_cpu_device_fallback,
+        ) = self._extract_internal_fallback_flags(internal_kwargs)
         profile_progress = self._is_generation_progress_profiling_enabled()
         stage_timings: Dict[str, float] = {}
         last_time_costs: Optional[Dict[str, Any]] = None
@@ -314,7 +382,7 @@ class GenerateMusicMixin:
         )
 
         if (
-            _allow_cpu_device_fallback
+            allow_cpu_device_fallback
             and self._should_preflight_cpu_stability_mode()
             and hasattr(self, "switch_to_cpu_stability_preset")
         ):
@@ -486,7 +554,7 @@ class GenerateMusicMixin:
                             "switching to CPU stability preset before full generation."
                         )
                         canary_cpu_fallback = (
-                            _allow_cpu_device_fallback
+                            allow_cpu_device_fallback
                             and hasattr(self, "switch_to_cpu_stability_preset")
                         )
                         if canary_cpu_fallback:
@@ -637,7 +705,7 @@ class GenerateMusicMixin:
                     quantized_runtime = getattr(self, "quantization", None) is not None
                     if not (self._is_non_finite_latents_error(second_decode_exc) and quantized_runtime):
                         raise
-                    fallback_steps = max(4, min(inference_steps, 6))
+                    fallback_steps = self._resolve_quantized_stability_fallback_steps(inference_steps)
                     fallback_infer_method = "sde" if infer_method != "sde" else infer_method
                     logger.warning(
                         "[generate_music] Safe retry still produced non-finite latents on quantized runtime; "
@@ -687,7 +755,7 @@ class GenerateMusicMixin:
                         )
                     except RuntimeError as final_decode_exc:
                         can_dequant_fallback_prereqs = (
-                            _allow_dequant_fallback
+                            allow_dequant_fallback
                             and self._is_non_finite_latents_error(final_decode_exc)
                             and getattr(self, "quantization", None) is not None
                             and hasattr(self, "switch_to_training_preset")
@@ -697,7 +765,7 @@ class GenerateMusicMixin:
                             and self._can_attempt_non_quantized_fallback()
                         )
                         can_quantized_mode_fallback = (
-                            _allow_quantized_mode_fallback
+                            allow_quantized_mode_fallback
                             and self._is_non_finite_latents_error(final_decode_exc)
                             and getattr(self, "quantization", None) == "w8a8_dynamic"
                             and hasattr(self, "switch_to_stable_quantized_preset")
@@ -745,16 +813,16 @@ class GenerateMusicMixin:
                                     latent_shift=latent_shift,
                                     latent_rescale=latent_rescale,
                                     progress=progress,
-                                    _allow_dequant_fallback=_allow_dequant_fallback,
+                                    _allow_dequant_fallback=allow_dequant_fallback,
                                     _allow_quantized_mode_fallback=False,
-                                    _allow_cpu_device_fallback=_allow_cpu_device_fallback,
+                                    _allow_cpu_device_fallback=allow_cpu_device_fallback,
                                 )
                             logger.warning(
                                 "[generate_music] Failed to switch quantization mode automatically: {}",
                                 switch_status,
                             )
                         can_cpu_device_fallback = (
-                            _allow_cpu_device_fallback
+                            allow_cpu_device_fallback
                             and self._is_non_finite_latents_error(final_decode_exc)
                             and getattr(self, "device", None) == "cuda"
                             and getattr(self, "quantization", None) == "int8_weight_only"
@@ -868,7 +936,7 @@ class GenerateMusicMixin:
                             progress=progress,
                             _allow_dequant_fallback=False,
                             _allow_quantized_mode_fallback=False,
-                            _allow_cpu_device_fallback=_allow_cpu_device_fallback,
+                            _allow_cpu_device_fallback=allow_cpu_device_fallback,
                         )
                 stage_timings["decode_state_stage_sec"] = time.perf_counter() - decode_state_start
             decode_start = time.perf_counter()
