@@ -1,7 +1,9 @@
 """Execution helper for ``generate_music`` service invocation with progress tracking."""
 
 import os
+import queue
 import threading
+import time
 from typing import Any, Dict, List, Optional, Sequence
 
 from loguru import logger
@@ -13,7 +15,7 @@ _DEFAULT_GENERATION_TIMEOUT = int(os.environ.get("ACESTEP_GENERATION_TIMEOUT", "
 
 
 class GenerateMusicExecuteMixin:
-    """Run service generation under diffusion progress estimation lifecycle."""
+    """Run service generation with timeout and thread-safe progress forwarding."""
 
     def _run_generate_music_service_with_progress(
         self,
@@ -34,7 +36,7 @@ class GenerateMusicExecuteMixin:
         shift: float,
         infer_method: str,
     ) -> Dict[str, Any]:
-        """Invoke ``service_generate`` while maintaining background progress estimation.
+        """Invoke ``service_generate`` while relaying progress to the request thread.
 
         Wraps the synchronous CUDA call in a monitored thread so that a hung
         diffusion loop becomes a recoverable ``TimeoutError`` instead of a
@@ -69,10 +71,30 @@ class GenerateMusicExecuteMixin:
                 return
             start, end = stage_ranges[stage]
             ratio = min(1.0, max(0.0, float(current) / float(total)))
-            _report_progress(start + (end - start) * ratio, desc=desc)
+            progress_events.put((start + (end - start) * ratio, desc))
 
-        stop_event = None
-        progress_thread = None
+        progress_events: "queue.Queue[tuple[float, str]]" = queue.Queue()
+        start_wait_ts = time.monotonic()
+        per_step_estimate = None
+        estimate_fn = getattr(self, "_estimate_diffusion_per_step", None)
+        if callable(estimate_fn):
+            per_step_estimate = estimate_fn(
+                infer_steps=infer_steps_for_progress,
+                batch_size=actual_batch_size,
+                duration_sec=audio_duration if audio_duration and audio_duration > 0 else None,
+            ) or getattr(self, "_last_diffusion_per_step_sec", None)
+        if not per_step_estimate:
+            per_step_estimate = 2.5 * max(1, actual_batch_size)
+        expected_sec = float(per_step_estimate) * max(1, infer_steps_for_progress)
+
+        def _drain_progress_events() -> None:
+            """Flush queued service progress events on the request thread."""
+            while True:
+                try:
+                    value, desc = progress_events.get_nowait()
+                except queue.Empty:
+                    break
+                _report_progress(value, desc=desc)
 
         # --- Timeout-wrapped service_generate ---
         # Run the actual CUDA work in a child thread so we can join() with a
@@ -117,45 +139,37 @@ class GenerateMusicExecuteMixin:
             if callable(runtime_progress_setter):
                 runtime_progress_setter(_service_progress_callback)
 
-            stop_event, progress_thread = self._start_diffusion_progress_estimator(
-                progress=_report_progress if progress is not None else None,
-                start=0.52,
-                end=0.79,
-                infer_steps=infer_steps_for_progress,
-                batch_size=actual_batch_size,
-                duration_sec=audio_duration if audio_duration and audio_duration > 0 else None,
-                desc=progress_desc,
-            )
-
             gen_thread = threading.Thread(
                 target=_service_target,
                 name="service-generate",
                 daemon=True,
             )
             gen_thread.start()
-            gen_thread.join(timeout=_DEFAULT_GENERATION_TIMEOUT)
-
-            if gen_thread.is_alive():
-                logger.error(
-                    f"[generate_music] service_generate exceeded {_DEFAULT_GENERATION_TIMEOUT}s "
-                    f"timeout (batch={actual_batch_size}, steps={inference_steps}, "
-                    f"duration={audio_duration}s).  The CUDA operation may still be "
-                    f"running in the background."
-                )
-                raise TimeoutError(
-                    f"Music generation timed out after {_DEFAULT_GENERATION_TIMEOUT} seconds.  "
-                    f"This usually means the GPU ran out of VRAM or the diffusion loop "
-                    f"stalled.  Try reducing batch size, duration, or inference steps."
-                )
+            deadline = start_wait_ts + _DEFAULT_GENERATION_TIMEOUT
+            while gen_thread.is_alive():
+                gen_thread.join(timeout=0.1)
+                _drain_progress_events()
+                elapsed = time.monotonic() - start_wait_ts
+                est_frac = min(0.999, elapsed / expected_sec) if expected_sec > 0 else 0.0
+                _report_progress(0.52 + (0.79 - 0.52) * est_frac, desc=progress_desc)
+                if time.monotonic() >= deadline and gen_thread.is_alive():
+                    logger.error(
+                        f"[generate_music] service_generate exceeded {_DEFAULT_GENERATION_TIMEOUT}s "
+                        f"timeout (batch={actual_batch_size}, steps={inference_steps}, "
+                        f"duration={audio_duration}s).  The CUDA operation may still be "
+                        f"running in the background."
+                    )
+                    raise TimeoutError(
+                        f"Music generation timed out after {_DEFAULT_GENERATION_TIMEOUT} seconds.  "
+                        f"This usually means the GPU ran out of VRAM or the diffusion loop "
+                        f"stalled.  Try reducing batch size, duration, or inference steps."
+                    )
+            _drain_progress_events()
             if "exc" in _error:
                 raise _error["exc"]
 
         finally:
             if callable(runtime_progress_setter):
                 runtime_progress_setter(None)
-            if stop_event is not None:
-                stop_event.set()
-            if progress_thread is not None:
-                progress_thread.join(timeout=1.0)
 
         return {"outputs": _result["outputs"], "infer_steps_for_progress": infer_steps_for_progress}
