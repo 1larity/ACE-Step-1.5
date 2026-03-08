@@ -129,6 +129,32 @@ class ProgressPhaseProfileTests(unittest.TestCase):
                 self.assertEqual(profile_after["sample_count"], 2)
                 self.assertEqual(profile_after["phase_ranges"], frozen_ranges)
 
+    def test_runtime_progress_callback_is_thread_scoped(self):
+        """Runtime callback registration should stay isolated per worker thread."""
+        with TemporaryDirectory() as tmp_dir:
+            estimates_path = str(Path(tmp_dir) / "progress_estimates.json")
+            host = _Host(estimates_path)
+            main_events = []
+            worker_events = []
+
+            host._set_runtime_progress_callback(lambda **event: main_events.append(event))
+            host._emit_runtime_progress("diffusion", 1, 4, "main start")
+
+            def _worker() -> None:
+                host._set_runtime_progress_callback(lambda **event: worker_events.append(event))
+                host._emit_runtime_progress("diffusion", 2, 4, "worker step")
+                host._set_runtime_progress_callback(None)
+
+            worker = threading.Thread(target=_worker)
+            worker.start()
+            worker.join()
+
+            host._emit_runtime_progress("diffusion", 3, 4, "main end")
+            host._set_runtime_progress_callback(None)
+
+            self.assertEqual([event["current"] for event in main_events], [1, 3])
+            self.assertEqual([event["current"] for event in worker_events], [2])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -135,6 +135,8 @@ class GenerateMusicExecuteMixin:
 
         def _service_target():
             try:
+                if callable(runtime_progress_setter):
+                    runtime_progress_setter(_service_progress_callback)
                 _result["outputs"] = self.service_generate(
                     captions=service_inputs["captions_batch"],
                     global_captions=service_inputs.get("global_captions_batch"),
@@ -163,11 +165,11 @@ class GenerateMusicExecuteMixin:
                 )
             except Exception as exc:
                 _error["exc"] = exc
+            finally:
+                if callable(runtime_progress_setter):
+                    runtime_progress_setter(None)
 
         try:
-            if callable(runtime_progress_setter):
-                runtime_progress_setter(_service_progress_callback)
-
             gen_thread = threading.Thread(
                 target=_service_target,
                 name="service-generate",
@@ -199,9 +201,7 @@ class GenerateMusicExecuteMixin:
             _drain_progress_events()
             if "exc" in _error:
                 raise _error["exc"]
-
         finally:
-            if callable(runtime_progress_setter):
-                runtime_progress_setter(None)
+            _drain_progress_events()
 
         return {"outputs": _result["outputs"], "infer_steps_for_progress": infer_steps_for_progress}

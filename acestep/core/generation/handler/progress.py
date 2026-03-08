@@ -28,8 +28,39 @@ class ProgressMixin:
         self,
         callback: Optional[Callable[..., Any]],
     ) -> None:
-        """Set per-generation runtime progress callback used by inner loops."""
+        """Set per-generation runtime progress callback for the current thread."""
+        callbacks = getattr(self, "_runtime_progress_callbacks", None)
+        if not isinstance(callbacks, dict):
+            callbacks = {}
+            self._runtime_progress_callbacks = callbacks
+
+        callbacks_lock = getattr(self, "_runtime_progress_callbacks_lock", None)
+        if callbacks_lock is None:
+            callbacks_lock = threading.Lock()
+            self._runtime_progress_callbacks_lock = callbacks_lock
+
+        thread_id = threading.get_ident()
+        with callbacks_lock:
+            if callable(callback):
+                callbacks[thread_id] = callback
+            else:
+                callbacks.pop(thread_id, None)
+
+        # Backward-compatible fallback for tests/older call sites that access the
+        # single-callback attribute directly.
         self._runtime_progress_callback = callback
+
+    def _get_runtime_progress_callback(self) -> Optional[Callable[..., Any]]:
+        """Return the active runtime progress callback for the current thread."""
+        callbacks = getattr(self, "_runtime_progress_callbacks", None)
+        callbacks_lock = getattr(self, "_runtime_progress_callbacks_lock", None)
+        thread_id = threading.get_ident()
+        if isinstance(callbacks, dict) and callbacks_lock is not None:
+            with callbacks_lock:
+                callback = callbacks.get(thread_id)
+                if callable(callback):
+                    return callback
+        return getattr(self, "_runtime_progress_callback", None)
 
     def _emit_runtime_progress(
         self,
@@ -39,7 +70,11 @@ class ProgressMixin:
         desc: str,
     ) -> None:
         """Emit a runtime progress event to the active callback when available."""
-        callback = getattr(self, "_runtime_progress_callback", None)
+        resolver = getattr(self, "_get_runtime_progress_callback", None)
+        if callable(resolver):
+            callback = resolver()
+        else:
+            callback = getattr(self, "_runtime_progress_callback", None)
         if not callable(callback):
             return
         try:

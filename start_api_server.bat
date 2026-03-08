@@ -330,6 +330,14 @@ echo [Compatibility] Installing CUDA 12.1 torch build with sm_61 support...
 uv pip install --python .venv\Scripts\python.exe --force-reinstall --index-url https://download.pytorch.org/whl/cu121 torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121
 if !ERRORLEVEL! EQU 0 (
     echo [Compatibility] Legacy torch install complete.
+    REM Keep a legacy-compatible torchao so INT8 quantization remains available
+    REM on low-VRAM Pascal/Quadro GPUs.
+    uv pip install --python .venv\Scripts\python.exe --force-reinstall torchao==0.11.0 >nul 2>&1
+    if !ERRORLEVEL! EQU 0 (
+        echo [Compatibility] Installed torchao==0.11.0 (legacy-compatible).
+    ) else (
+        echo [Compatibility] Warning: failed to install torchao==0.11.0. Quantization may be unavailable.
+    )
 ) else (
     echo [Compatibility] Warning: automatic legacy torch install failed.
     echo [Compatibility] Run manually:

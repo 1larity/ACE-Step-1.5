@@ -131,6 +131,10 @@ class _Host(GenerateMusicMixin):
         self.calls["_prepare_generate_music_service_inputs"] = kwargs
         return {"should_return_intermediate": True}
 
+    def _vram_preflight_check(self, **_kwargs):
+        """Disable hardware-dependent VRAM checks in unit tests."""
+        return None
+
     def _run_generate_music_service_with_progress(self, **kwargs):
         """Capture service execution args and return deterministic model outputs."""
         self.calls["_run_generate_music_service_with_progress"] = kwargs
@@ -430,7 +434,11 @@ class GenerateMusicMixinTests(unittest.TestCase):
             return torch.ones(1, 4, 3), {"total_time_cost": 1.0}
 
         host._prepare_generate_music_decode_state = _decode_state_side_effect
-        with patch.dict(os.environ, {"ACESTEP_ALLOW_RISKY_QUANTIZED_CUDA": "1"}, clear=False):
+        with patch.dict(os.environ, {"ACESTEP_ALLOW_RISKY_QUANTIZED_CUDA": "1"}, clear=False), patch.object(
+            host,
+            "_should_run_cuda_stability_canary",
+            side_effect=lambda: host.device == "cuda",
+        ):
             out = host.generate_music(
                 captions="cap",
                 lyrics="lyr",
@@ -633,7 +641,8 @@ class VramPreflightCheckTests(unittest.TestCase):
         """It returns None (pass) when offload_to_cpu is True, regardless of free VRAM."""
         mock_torch.cuda.is_available.return_value = True
         host = _Host(offload_to_cpu=True)
-        result = host._vram_preflight_check(
+        result = GenerateMusicMixin._vram_preflight_check(
+            host,
             actual_batch_size=2,
             audio_duration=246.0,
             guidance_scale=7.0,
@@ -648,7 +657,8 @@ class VramPreflightCheckTests(unittest.TestCase):
         """It returns error payload when offload is off and free VRAM is insufficient."""
         mock_torch.cuda.is_available.return_value = True
         host = _Host(offload_to_cpu=False)
-        result = host._vram_preflight_check(
+        result = GenerateMusicMixin._vram_preflight_check(
+            host,
             actual_batch_size=2,
             audio_duration=246.0,
             guidance_scale=7.0,
@@ -665,7 +675,8 @@ class VramPreflightCheckTests(unittest.TestCase):
         """It returns None when offload is off but free VRAM exceeds estimate."""
         mock_torch.cuda.is_available.return_value = True
         host = _Host(offload_to_cpu=False)
-        result = host._vram_preflight_check(
+        result = GenerateMusicMixin._vram_preflight_check(
+            host,
             actual_batch_size=2,
             audio_duration=246.0,
             guidance_scale=7.0,
@@ -677,7 +688,8 @@ class VramPreflightCheckTests(unittest.TestCase):
         """It returns None when CUDA is not available (CPU/MPS/XPU)."""
         mock_torch.cuda.is_available.return_value = False
         host = _Host(offload_to_cpu=False)
-        result = host._vram_preflight_check(
+        result = GenerateMusicMixin._vram_preflight_check(
+            host,
             actual_batch_size=2,
             audio_duration=246.0,
             guidance_scale=7.0,

@@ -76,7 +76,11 @@ class ServiceGenerateExecuteMixin:
     ) -> Dict[str, Any]:
         """Build kwargs passed to model generation backends."""
         disable_tqdm = bool(getattr(self, "disable_tqdm", False))
-        runtime_progress = getattr(self, "_runtime_progress_callback", None)
+        runtime_progress_resolver = getattr(self, "_get_runtime_progress_callback", None)
+        if callable(runtime_progress_resolver):
+            runtime_progress = runtime_progress_resolver()
+        else:
+            runtime_progress = getattr(self, "_runtime_progress_callback", None)
         kwargs = {
             "text_hidden_states": payload["text_hidden_states"],
             "text_attention_mask": payload["text_attention_mask"],

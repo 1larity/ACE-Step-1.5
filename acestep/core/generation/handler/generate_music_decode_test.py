@@ -79,6 +79,49 @@ class _FakeVae:
         return self
 
 
+class _CudaSafeLatents:
+    """Tensor-like wrapper that no-ops device moves to keep tests CPU-only."""
+
+    def __init__(self, tensor: torch.Tensor):
+        """Store wrapped tensor used for shape/dtype preserving transforms."""
+        self._tensor = tensor
+
+    @property
+    def shape(self):
+        """Expose wrapped tensor shape."""
+        return self._tensor.shape
+
+    @property
+    def device(self):
+        """Expose wrapped tensor device."""
+        return self._tensor.device
+
+    def detach(self):
+        """Return detached wrapped tensor."""
+        return _CudaSafeLatents(self._tensor.detach())
+
+    def cpu(self):
+        """Return CPU wrapped tensor."""
+        return _CudaSafeLatents(self._tensor.cpu())
+
+    def transpose(self, *args, **kwargs):
+        """Return transposed wrapped tensor."""
+        return _CudaSafeLatents(self._tensor.transpose(*args, **kwargs))
+
+    def contiguous(self):
+        """Return contiguous wrapped tensor."""
+        return _CudaSafeLatents(self._tensor.contiguous())
+
+    def to(self, *args, **kwargs):
+        """Support dtype conversion while no-oping device migration."""
+        if args and isinstance(args[0], torch.dtype):
+            return _CudaSafeLatents(self._tensor.to(*args, **kwargs))
+        dtype = kwargs.get("dtype")
+        if isinstance(dtype, torch.dtype):
+            return _CudaSafeLatents(self._tensor.to(dtype=dtype))
+        return self
+
+
 class _Host(GenerateMusicDecodeMixin):
     """Minimal decode-mixin host exposing deterministic state for assertions."""
 
@@ -211,6 +254,53 @@ class GenerateMusicDecodeMixinTests(unittest.TestCase):
                 time_costs=time_costs,
             )
 
+        self.assertEqual(tuple(pred_wavs.shape), (1, 2, 8))
+        self.assertAlmostEqual(updated_costs["vae_decode_time_cost"], 0.5, places=6)
+
+    def test_decode_pred_latents_falls_back_when_cuda_kernel_image_is_missing(self):
+        """Decode should fallback to CPU and disable temp CUDA VAE after kernel-image failure."""
+        host = _Host()
+        host.use_mlx_vae = False
+        host.mlx_vae = None
+        pred_latents = _CudaSafeLatents(torch.ones(1, 4, 3))
+        time_costs = {"total_time_cost": 1.0}
+        call_count = {"count": 0}
+
+        def _tiled_decode(latents, progress_callback=None):
+            """Raise kernel-image failure once, then succeed on CPU fallback retry."""
+            _ = latents, progress_callback
+            call_count["count"] += 1
+            if call_count["count"] == 1:
+                raise RuntimeError("CUDA error: no kernel image is available for execution on the device")
+            return torch.ones(1, 2, 8)
+
+        host.tiled_decode = _tiled_decode
+        with patch.dict(
+            GENERATE_MUSIC_DECODE_MODULE.os.environ,
+            {"ACESTEP_CPU_STABILITY_USE_CUDA_VAE": "1"},
+            clear=False,
+        ), patch.object(
+            GENERATE_MUSIC_DECODE_MODULE.torch.cuda,
+            "is_available",
+            return_value=True,
+        ), patch.object(
+            GENERATE_MUSIC_DECODE_MODULE,
+            "get_effective_free_vram_gb",
+            return_value=3.0,
+        ), patch.object(
+            GENERATE_MUSIC_DECODE_MODULE.time,
+            "time",
+            side_effect=[40.0, 40.5],
+        ):
+            pred_wavs, _, updated_costs = host._decode_generate_music_pred_latents(
+                pred_latents=pred_latents,
+                progress=None,
+                use_tiled_decode=True,
+                time_costs=time_costs,
+            )
+            self.assertFalse(host._should_try_cuda_vae_decode_from_cpu(using_mlx_vae=False))
+
+        self.assertEqual(call_count["count"], 2)
         self.assertEqual(tuple(pred_wavs.shape), (1, 2, 8))
         self.assertAlmostEqual(updated_costs["vae_decode_time_cost"], 0.5, places=6)
 

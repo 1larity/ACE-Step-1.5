@@ -37,6 +37,8 @@ class GenerateMusicDecodeMixin:
 
     def _should_try_cuda_vae_decode_from_cpu(self, using_mlx_vae: bool) -> bool:
         """Return whether CPU runtime should attempt temporary CUDA VAE decode."""
+        if bool(getattr(self, "_cpu_stability_cuda_vae_disabled", False)):
+            return False
         if using_mlx_vae:
             return False
         if not self._is_cpu_stability_cuda_vae_enabled():
@@ -53,6 +55,15 @@ class GenerateMusicDecodeMixin:
         except Exception:
             return False
         return free_gb >= min_free_gb
+
+    @staticmethod
+    def _is_cuda_no_kernel_image_error(exc: RuntimeError) -> bool:
+        """Return whether ``exc`` indicates missing CUDA kernel image for active GPU arch."""
+        message = str(exc).lower()
+        return (
+            "no kernel image is available for execution on the device" in message
+            or "cudaerrornokernelimagefordevice" in message
+        )
 
     def _prepare_generate_music_decode_state(
         self,
@@ -279,6 +290,29 @@ class GenerateMusicDecodeMixin:
                     logger.warning(
                         "[generate_music] CUDA VAE decode ran out of memory; retrying decode on CPU VAE."
                     )
+                    self.vae = self.vae.cpu()
+                    pred_latents_for_decode = pred_latents_for_decode.cpu()
+                    promoted_vae_to_cuda = False
+                    self._empty_cache()
+                    if use_tiled_decode:
+                        pred_wavs = self.tiled_decode(
+                            pred_latents_for_decode,
+                            progress_callback=_on_decode_chunk_progress,
+                        )
+                    else:
+                        decoder_output = self.vae.decode(pred_latents_for_decode)
+                        pred_wavs = decoder_output.sample
+                        del decoder_output
+                except RuntimeError as exc:
+                    if not promoted_vae_to_cuda or not self._is_cuda_no_kernel_image_error(exc):
+                        raise
+                    logger.warning(
+                        "[generate_music] Temporary CUDA VAE decode is unsupported on this GPU/torch build "
+                        "({}); retrying decode on CPU VAE and disabling future temporary CUDA VAE attempts "
+                        "for this process.",
+                        exc,
+                    )
+                    self._cpu_stability_cuda_vae_disabled = True
                     self.vae = self.vae.cpu()
                     pred_latents_for_decode = pred_latents_for_decode.cpu()
                     promoted_vae_to_cuda = False
