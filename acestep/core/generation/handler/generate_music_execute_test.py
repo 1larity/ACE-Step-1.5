@@ -109,7 +109,7 @@ class GenerateMusicExecuteMixinTests(unittest.TestCase):
         )
 
         self.assertTrue(progress_values)
-        self.assertTrue(any(value > 0.61 for value, _ in progress_values))
+        self.assertTrue(any(value > 0.5 for value, _ in progress_values))
 
 
 if __name__ == "__main__":

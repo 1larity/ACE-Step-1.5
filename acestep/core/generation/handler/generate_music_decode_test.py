@@ -149,11 +149,30 @@ class GenerateMusicDecodeMixinTests(unittest.TestCase):
         self.assertEqual(host._last_diffusion_per_step_sec, 0.2)
         self.assertEqual(host.estimate_calls[0]["infer_steps"], 8)
 
-    def test_prepare_decode_state_raises_for_nan_latents(self):
-        """It raises runtime error when diffusion latents contain NaN values."""
+    def test_prepare_decode_state_sanitizes_small_non_finite_latent_spikes(self):
+        """It replaces small non-finite latent spikes to keep decode path running."""
+        host = _Host()
+        latents = torch.ones(1, 1, 100)
+        latents[0, 0, 7] = float("nan")
+        outputs = {
+            "target_latents": latents,
+            "time_costs": {"total_time_cost": 1.0},
+        }
+        pred_latents, _ = host._prepare_generate_music_decode_state(
+            outputs=outputs,
+            infer_steps_for_progress=8,
+            actual_batch_size=1,
+            audio_duration=None,
+            latent_shift=0.0,
+            latent_rescale=1.0,
+        )
+        self.assertTrue(torch.isfinite(pred_latents).all())
+
+    def test_prepare_decode_state_raises_for_large_non_finite_latent_ratio(self):
+        """It raises runtime error when too much of the latent tensor is non-finite."""
         host = _Host()
         outputs = {
-            "target_latents": torch.tensor([[[float("nan")]]]),
+            "target_latents": torch.tensor([[[float("nan"), float("nan"), float("nan")]]]),
             "time_costs": {"total_time_cost": 1.0},
         }
         with self.assertRaises(RuntimeError):

@@ -65,12 +65,25 @@ class GenerateMusicDecodeMixin:
         logger.debug(f"[generate_music] time_costs: {time_costs}")
 
         if torch.isnan(pred_latents).any() or torch.isinf(pred_latents).any():
-            raise RuntimeError(
-                "Generation produced NaN or Inf latents. "
-                "This usually indicates a checkpoint/config mismatch "
-                "or unsupported quantization/backend combination. "
-                "Try running with --backend pt or verify your model checkpoints match this release."
-            )
+            finite_mask = torch.isfinite(pred_latents)
+            invalid_count = int((~finite_mask).sum().item())
+            total_count = int(pred_latents.numel())
+            invalid_ratio = (invalid_count / total_count) if total_count else 1.0
+            if invalid_ratio <= 0.05:
+                logger.warning(
+                    "[generate_music] Replacing {} non-finite latent values ({:.4%}) with finite values.",
+                    invalid_count,
+                    invalid_ratio,
+                )
+                pred_latents = torch.nan_to_num(pred_latents, nan=0.0, posinf=1.0, neginf=-1.0)
+            else:
+                raise RuntimeError(
+                    "Generation produced too many NaN or Inf latents "
+                    f"({invalid_count}/{total_count}, {invalid_ratio:.2%}). "
+                    "This usually indicates a checkpoint/config mismatch "
+                    "or unsupported quantization/backend combination. "
+                    "Try running with --backend pt or verify your model checkpoints match this release."
+                )
         if pred_latents.numel() > 0 and pred_latents.abs().sum() == 0:
             raise RuntimeError(
                 "Generation produced zero latents. "

@@ -166,7 +166,7 @@ class GenerateMusicMixin:
 
         logger.info("[generate_music] Starting generation...")
         if progress:
-            progress(0.51, desc="Preparing inputs...")
+            progress(0.05, desc="Preparing inputs...")
         logger.info("[generate_music] Preparing inputs...")
 
         runtime = self._prepare_generate_music_runtime(
