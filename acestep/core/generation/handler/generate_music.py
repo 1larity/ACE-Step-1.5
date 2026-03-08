@@ -92,6 +92,17 @@ class GenerateMusicMixin:
             "error": msg,
         }
 
+    @staticmethod
+    def _should_retry_after_non_finite_latents(
+        exc: RuntimeError,
+        guidance_scale: float,
+        use_adg: bool,
+    ) -> bool:
+        """Return ``True`` when a safer one-time diffusion retry is warranted."""
+        msg = str(exc)
+        non_finite_error = "too many NaN or Inf latents" in msg
+        return non_finite_error and (guidance_scale > 1.0 or use_adg)
+
     def generate_music(
         self,
         captions: str,
@@ -240,14 +251,57 @@ class GenerateMusicMixin:
             outputs = service_run["outputs"]
             infer_steps_for_progress = service_run["infer_steps_for_progress"]
 
-            pred_latents, time_costs = self._prepare_generate_music_decode_state(
-                outputs=outputs,
-                infer_steps_for_progress=infer_steps_for_progress,
-                actual_batch_size=actual_batch_size,
-                audio_duration=audio_duration,
-                latent_shift=latent_shift,
-                latent_rescale=latent_rescale,
-            )
+            try:
+                pred_latents, time_costs = self._prepare_generate_music_decode_state(
+                    outputs=outputs,
+                    infer_steps_for_progress=infer_steps_for_progress,
+                    actual_batch_size=actual_batch_size,
+                    audio_duration=audio_duration,
+                    latent_shift=latent_shift,
+                    latent_rescale=latent_rescale,
+                )
+            except RuntimeError as decode_exc:
+                if not self._should_retry_after_non_finite_latents(
+                    decode_exc,
+                    guidance_scale=guidance_scale,
+                    use_adg=use_adg,
+                ):
+                    raise
+
+                logger.warning(
+                    "[generate_music] Non-finite latents detected; retrying diffusion once "
+                    "with safer settings (guidance_scale=1.0, use_adg=False)."
+                )
+                if progress:
+                    progress(0.79, desc="Retrying diffusion with safer settings...")
+                service_run = self._run_generate_music_service_with_progress(
+                    progress=None,
+                    actual_batch_size=actual_batch_size,
+                    audio_duration=audio_duration,
+                    inference_steps=inference_steps,
+                    timesteps=timesteps,
+                    service_inputs=service_inputs,
+                    refer_audios=refer_audios,
+                    guidance_scale=1.0,
+                    actual_seed_list=actual_seed_list,
+                    audio_cover_strength=audio_cover_strength,
+                    cover_noise_strength=cover_noise_strength,
+                    use_adg=False,
+                    cfg_interval_start=0.0,
+                    cfg_interval_end=1.0,
+                    shift=shift,
+                    infer_method=infer_method,
+                )
+                outputs = service_run["outputs"]
+                infer_steps_for_progress = service_run["infer_steps_for_progress"]
+                pred_latents, time_costs = self._prepare_generate_music_decode_state(
+                    outputs=outputs,
+                    infer_steps_for_progress=infer_steps_for_progress,
+                    actual_batch_size=actual_batch_size,
+                    audio_duration=audio_duration,
+                    latent_shift=latent_shift,
+                    latent_rescale=latent_rescale,
+                )
             pred_wavs, pred_latents_cpu, time_costs = self._decode_generate_music_pred_latents(
                 pred_latents=pred_latents,
                 progress=progress,

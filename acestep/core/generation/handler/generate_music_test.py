@@ -72,6 +72,7 @@ class _Host(GenerateMusicMixin):
         self.text_encoder = object()
         self.offload_to_cpu = offload_to_cpu
         self.calls: Dict[str, Any] = {}
+        self.service_run_calls = []
         self._final_payload = {"audios": [{"tensor": torch.zeros(1, 4), "sample_rate": 48000}], "success": True}
         self._readiness_error = {
             "audios": [],
@@ -127,6 +128,7 @@ class _Host(GenerateMusicMixin):
     def _run_generate_music_service_with_progress(self, **kwargs):
         """Capture service execution args and return deterministic model outputs."""
         self.calls["_run_generate_music_service_with_progress"] = kwargs
+        self.service_run_calls.append(kwargs)
         return {
             "outputs": {
                 "target_latents": torch.ones(1, 4, 3),
@@ -193,6 +195,34 @@ class GenerateMusicMixinTests(unittest.TestCase):
         self.assertFalse(out["success"])
         self.assertEqual(out["error"], "boom")
         self.assertIn("Error: boom", out["status_message"])
+
+    def test_generate_music_retries_once_with_safer_diffusion_after_non_finite_latents(self):
+        """It retries generation once with safer settings after non-finite-latent runtime error."""
+        host = _Host()
+        decode_calls = {"count": 0}
+
+        def _decode_state_side_effect(**kwargs):
+            """Raise once, then return valid decode inputs."""
+            decode_calls["count"] += 1
+            if decode_calls["count"] == 1:
+                raise RuntimeError("Generation produced too many NaN or Inf latents (100.00%).")
+            return torch.ones(1, 4, 3), {"total_time_cost": 1.0}
+
+        host._prepare_generate_music_decode_state = _decode_state_side_effect
+        out = host.generate_music(
+            captions="cap",
+            lyrics="lyr",
+            inference_steps=8,
+            guidance_scale=7.0,
+            use_adg=True,
+        )
+
+        self.assertEqual(out, host._final_payload)
+        self.assertEqual(len(host.service_run_calls), 2)
+        self.assertEqual(host.service_run_calls[0]["guidance_scale"], 7.0)
+        self.assertEqual(host.service_run_calls[1]["guidance_scale"], 1.0)
+        self.assertFalse(host.service_run_calls[1]["use_adg"])
+        self.assertIsNone(host.service_run_calls[1]["progress"])
 
 
 class VramPreflightCheckTests(unittest.TestCase):
