@@ -20,6 +20,7 @@ from .generation_advanced_primary_controls import (
     build_lora_controls,
 )
 from .generation_defaults import compute_init_defaults
+from .generation_external_lm_config import create_external_lm_config_content
 from .generation_service_config import create_service_config_content
 
 
@@ -59,12 +60,14 @@ def create_advanced_settings_section(
         t("generation.advanced_settings"),
         open=not service_pre_initialized,
     ) as advanced_settings_accordion:
-        service_components = create_service_config_content(
-            dit_handler=dit_handler,
-            llm_handler=llm_handler,
-            defaults=defaults,
-            init_params=init_params,
-        )
+        with gr.Tabs():
+            service_components = create_service_config_content(
+                dit_handler=dit_handler,
+                llm_handler=llm_handler,
+                defaults=defaults,
+                init_params=init_params,
+            )
+            external_lm_components = create_external_lm_config_content(init_params=init_params)
         lora_components = build_lora_controls()
         dit_components = build_dit_controls(ui_config)
         lm_components = build_lm_controls(service_mode=service_mode)
@@ -82,4 +85,5 @@ def create_advanced_settings_section(
     result.update(automation_components)
     result.update(lora_components)
     result.update(service_components)
+    result.update(external_lm_components)
     return result

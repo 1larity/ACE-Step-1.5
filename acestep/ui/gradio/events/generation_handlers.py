@@ -41,9 +41,19 @@ from .generation.llm_actions import (  # noqa: F401
     handle_create_sample,
     handle_format_sample,
     handle_format_caption,
+    handle_generate_lyrics_from_caption,
     handle_format_lyrics,
+    handle_generate_random_narrative_caption,
     transcribe_audio_codes,
     analyze_src_audio,
+)
+from .generation.external_lm_setup_actions import (  # noqa: F401
+    check_external_lm_runtime_from_ui,
+    check_glm_runtime_from_ui,
+    fetch_external_lm_models_from_ui,
+    load_external_lm_provider_defaults,
+    save_external_lm_settings_from_ui,
+    save_glm_credentials_from_ui,
 )
 from .generation.ui_helpers import (  # noqa: F401
     update_negative_prompt_visibility,

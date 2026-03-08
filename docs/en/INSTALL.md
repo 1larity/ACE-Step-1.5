@@ -129,6 +129,22 @@ chmod +x start_gradio_ui.sh start_api_server.sh
 
 > **Note:** Git must be installed via your system package manager (`sudo apt install git`, `sudo yum install git`, `sudo pacman -S git`).
 
+#### Legacy NVIDIA Compatibility (Pre-Ampere)
+
+On Linux CUDA launchers, ACE-Step now auto-probes GPU arch compatibility and applies a legacy
+PyTorch patch only when needed (for older GPUs such as Pascal / some Quadro cards where default
+CUDA wheels can miss `sm_61` kernels).
+
+- If compatibility patch is **not** needed: launchers use normal synced `uv run`.
+- If compatibility patch **is** needed: launchers install legacy torch builds, then run with
+  `uv run --no-sync` to preserve the pinned compatible wheels.
+
+To skip this behavior manually:
+
+```bash
+ACESTEP_SKIP_LEGACY_TORCH_FIX=true ./start_gradio_ui.sh
+```
+
 ### macOS (Apple Silicon / MLX)
 
 macOS scripts use the **MLX backend** for native Apple Silicon acceleration (M1/M2/M3/M4).
@@ -153,6 +169,7 @@ The macOS scripts automatically set `ACESTEP_LM_BACKEND=mlx` and `--backend mlx`
 - Startup update check (enabled by default, configurable)
 - Auto environment detection (portable Python or uv)
 - Auto install `uv` if needed
+- Legacy NVIDIA CUDA compatibility probe/patch on Linux launchers (pre-Ampere fallback)
 - Configurable download source (HuggingFace/ModelScope)
 - Customizable models and parameters
 
@@ -274,6 +291,24 @@ SHARE="--share"
 check_update.bat                    ./check_update.sh
 merge_config.bat                    ./merge_config.sh
 ```
+
+### External LLM Setup Helpers (Optional)
+
+If you use cloud/provider-based language models for sample/format/Think tasks, you can configure
+credentials either in the Gradio **External LLM** tab or via CLI helpers:
+
+```bash
+# Store encrypted GLM key (+ optional keyring passphrase save)
+uv run python scripts/glm_setup.py setup
+
+# Check external runtime readiness
+uv run python scripts/glm_setup.py doctor
+
+# Run an external text planning task directly
+uv run python scripts/glm_text_tasks.py plan --intent "Ethereal orchestral track with hopeful chorus"
+```
+
+For Z.ai Coding Plan quotas, use the coding endpoint/model lane when required by your account.
 
 ---
 

@@ -43,50 +43,51 @@ def create_service_config_content(
     service_pre_initialized = defaults["service_pre_initialized"]
     service_mode = defaults["service_mode"]
 
-    with gr.Accordion(
-        t("service.title"),
-        open=not service_pre_initialized,
-        visible=not service_mode,
-        elem_classes=["has-info-container"],
-    ) as service_config_accordion:
-        create_help_button("service_config")
-        language_controls = build_language_selector(defaults["current_language"])
-        gpu_controls = build_gpu_info_and_tier(defaults["gpu_config"])
-        checkpoint_controls = build_checkpoint_controls(
-            dit_handler=dit_handler,
-            service_pre_initialized=service_pre_initialized,
-            params=params,
-        )
-        model_device_controls = build_model_device_controls(
-            dit_handler=dit_handler,
-            service_pre_initialized=service_pre_initialized,
-            params=params,
-        )
-        lm_backend_controls = build_lm_backend_controls(
-            llm_handler=llm_handler,
-            service_pre_initialized=service_pre_initialized,
-            params=params,
-            recommended_lm=defaults["recommended_lm"],
-            available_backends=defaults["available_backends"],
-            recommended_backend=defaults["recommended_backend"],
-            gpu_config=defaults["gpu_config"],
-        )
-        toggle_controls = build_service_toggles(
-            dit_handler=dit_handler,
-            device_value=model_device_controls["device_value"],
-            service_pre_initialized=service_pre_initialized,
-            params=params,
-            init_lm_default=defaults["init_lm_default"],
-            default_offload=defaults["default_offload"],
-            default_offload_dit=defaults["default_offload_dit"],
-            default_compile=defaults["default_compile"],
-            default_quantization=defaults["default_quantization"],
-            gpu_config=defaults["gpu_config"],
-        )
-        init_controls = build_service_init_controls(
-            service_pre_initialized=service_pre_initialized,
-            params=params,
-        )
+    with gr.Tab("Service Config"):
+        with gr.Accordion(
+            t("service.title"),
+            open=not service_pre_initialized,
+            visible=not service_mode,
+            elem_classes=["has-info-container"],
+        ) as service_config_accordion:
+            create_help_button("service_config")
+            language_controls = build_language_selector(defaults["current_language"])
+            gpu_controls = build_gpu_info_and_tier(defaults["gpu_config"])
+            checkpoint_controls = build_checkpoint_controls(
+                dit_handler=dit_handler,
+                service_pre_initialized=service_pre_initialized,
+                params=params,
+            )
+            model_device_controls = build_model_device_controls(
+                dit_handler=dit_handler,
+                service_pre_initialized=service_pre_initialized,
+                params=params,
+            )
+            lm_backend_controls = build_lm_backend_controls(
+                llm_handler=llm_handler,
+                service_pre_initialized=service_pre_initialized,
+                params=params,
+                recommended_lm=defaults["recommended_lm"],
+                available_backends=defaults["available_backends"],
+                recommended_backend=defaults["recommended_backend"],
+                gpu_config=defaults["gpu_config"],
+            )
+            toggle_controls = build_service_toggles(
+                dit_handler=dit_handler,
+                device_value=model_device_controls["device_value"],
+                service_pre_initialized=service_pre_initialized,
+                params=params,
+                init_lm_default=defaults["init_lm_default"],
+                default_offload=defaults["default_offload"],
+                default_offload_dit=defaults["default_offload_dit"],
+                default_compile=defaults["default_compile"],
+                default_quantization=defaults["default_quantization"],
+                gpu_config=defaults["gpu_config"],
+            )
+            init_controls = build_service_init_controls(
+                service_pre_initialized=service_pre_initialized,
+                params=params,
+            )
 
     result: dict[str, Any] = {"service_config_accordion": service_config_accordion}
     result.update(language_controls)

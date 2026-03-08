@@ -40,9 +40,19 @@ from .llm_actions import (
     handle_create_sample,
     handle_format_sample,
     handle_format_caption,
+    handle_generate_lyrics_from_caption,
     handle_format_lyrics,
+    handle_generate_random_narrative_caption,
     transcribe_audio_codes,
     analyze_src_audio,
+)
+from .external_lm_setup_actions import (
+    check_external_lm_runtime_from_ui,
+    check_glm_runtime_from_ui,
+    fetch_external_lm_models_from_ui,
+    load_external_lm_provider_defaults,
+    save_external_lm_settings_from_ui,
+    save_glm_credentials_from_ui,
 )
 from .ui_helpers import (
     update_negative_prompt_visibility,

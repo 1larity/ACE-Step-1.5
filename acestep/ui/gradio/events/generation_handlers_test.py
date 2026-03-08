@@ -294,6 +294,54 @@ class GenerationHandlersTests(unittest.TestCase):
         create_sample_mock.assert_called_once()
         info_mock.assert_called_once()
 
+    @patch("acestep.ui.gradio.events.generation.llm_sample_actions.gr.Info")
+    @patch(
+        "acestep.ui.gradio.events.generation.llm_sample_actions.create_sample_with_external_provider"
+    )
+    @patch("acestep.ui.gradio.events.generation.llm_sample_actions.create_sample")
+    @patch("acestep.ui.gradio.events.generation.llm_sample_actions.is_external_lm_active")
+    def test_handle_create_sample_uses_external_provider_when_active(
+        self,
+        external_active_mock,
+        create_sample_mock,
+        external_create_mock,
+        info_mock,
+    ):
+        """Create sample should use external provider even when local LM is not initialized."""
+        llm_handler = SimpleNamespace(llm_initialized=False)
+        external_active_mock.return_value = True
+        external_create_mock.return_value = SimpleNamespace(
+            success=True,
+            caption="external caption",
+            lyrics="external lyrics",
+            bpm=100,
+            duration=20.0,
+            keyscale="A minor",
+            language="en",
+            timesignature="4",
+            instrumental=False,
+            status_message="external ok",
+        )
+
+        result = generation_handlers.handle_create_sample(
+            llm_handler=llm_handler,
+            query="test prompt",
+            instrumental=False,
+            vocal_language="en",
+            lm_temperature=0.85,
+            lm_top_k=20,
+            lm_top_p=0.9,
+            constrained_decoding_debug=False,
+        )
+
+        self.assertEqual(result[0], "external caption")
+        self.assertEqual(result[1], "external lyrics")
+        self.assertEqual(result[13], "external ok")
+        self.assertTrue(result[11], "Think should remain available for external CoT path")
+        create_sample_mock.assert_not_called()
+        external_create_mock.assert_called_once()
+        info_mock.assert_called_once()
+
     @patch("acestep.ui.gradio.events.generation.llm_format_actions.gr.Warning")
     def test_handle_format_caption_lm_not_initialized_regression(self, warning_mock):
         """Caption formatting should return lm-not-initialized status when LM is unavailable."""
@@ -391,6 +439,223 @@ class GenerationHandlersTests(unittest.TestCase):
         format_sample_mock.assert_called_once()
         info_mock.assert_called_once()
 
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.gr.Info")
+    @patch(
+        "acestep.ui.gradio.events.generation.llm_format_actions.format_sample_with_external_provider"
+    )
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.format_sample")
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.is_external_lm_active")
+    def test_handle_format_sample_uses_external_provider_when_active(
+        self,
+        external_active_mock,
+        format_sample_mock,
+        external_format_mock,
+        info_mock,
+    ):
+        """Format sample should use external provider when external mode is active."""
+        llm_handler = SimpleNamespace(llm_initialized=False)
+        external_active_mock.return_value = True
+        external_format_mock.return_value = SimpleNamespace(
+            success=True,
+            caption="caption out",
+            lyrics="lyrics out",
+            bpm=112,
+            duration=12.0,
+            keyscale="G major",
+            language="en",
+            timesignature="3/4",
+            status_message="external formatted",
+        )
+
+        result = generation_handlers.handle_format_sample(
+            llm_handler=llm_handler,
+            caption="caption in",
+            lyrics="lyrics in",
+            bpm=112,
+            audio_duration=12.0,
+            key_scale="G major",
+            time_signature="3/4",
+            lm_temperature=0.85,
+            lm_top_k=0,
+            lm_top_p=0.9,
+            constrained_decoding_debug=False,
+        )
+
+        self.assertEqual(len(result), 9)
+        self.assertEqual(result[5], "en")
+        self.assertEqual(result[8], "external formatted")
+        format_sample_mock.assert_not_called()
+        external_format_mock.assert_called_once()
+        info_mock.assert_called_once()
+
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.gr.Warning")
+    @patch(
+        "acestep.ui.gradio.events.generation.llm_format_actions.format_sample_with_external_provider"
+    )
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.is_external_lm_active")
+    def test_handle_format_caption_external_credential_error_returns_status(
+        self,
+        external_active_mock,
+        external_format_mock,
+        warning_mock,
+    ):
+        """External provider credential errors should be returned as UI status, not exceptions."""
+        from acestep.text_tasks.external_lm_tasks import GlmClientError
+
+        llm_handler = SimpleNamespace(llm_initialized=False)
+        external_active_mock.return_value = True
+        external_format_mock.side_effect = GlmClientError("Missing GLM credentials")
+
+        result = generation_handlers.handle_format_caption(
+            llm_handler=llm_handler,
+            caption="caption",
+            lyrics="lyrics",
+            bpm=120,
+            audio_duration=30.0,
+            key_scale="C major",
+            time_signature="4",
+            lm_temperature=0.85,
+            lm_top_k=0,
+            lm_top_p=0.9,
+            constrained_decoding_debug=False,
+        )
+
+        self.assertEqual(result[-1], "Missing GLM credentials")
+        warning_mock.assert_called_once_with("Missing GLM credentials")
+
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.gr.Info")
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.format_sample")
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.random.choice")
+    def test_handle_generate_random_narrative_caption_success(
+        self,
+        random_choice_mock,
+        format_sample_mock,
+        info_mock,
+    ):
+        """Random-caption action should generate caption and report selected random genre."""
+        llm_handler = SimpleNamespace(llm_initialized=True)
+        random_choice_mock.return_value = "neo-soul"
+        format_sample_mock.return_value = SimpleNamespace(
+            success=True,
+            caption="narrative caption",
+            lyrics="unused",
+            bpm=92,
+            duration=18.0,
+            keyscale="D minor",
+            language="en",
+            timesignature="4/4",
+            status_message="formatted",
+        )
+
+        result = generation_handlers.handle_generate_random_narrative_caption(
+            llm_handler=llm_handler,
+            bpm=90,
+            audio_duration=20.0,
+            key_scale="C minor",
+            time_signature="4/4",
+            lm_temperature=0.8,
+            lm_top_k=10,
+            lm_top_p=0.9,
+            constrained_decoding_debug=False,
+        )
+
+        self.assertEqual("narrative caption", result[0])
+        self.assertEqual(92, result[1])
+        self.assertEqual(18.0, result[2])
+        self.assertEqual("formatted | Random genre seed: neo-soul", result[-1])
+        self.assertIn("neo-soul", format_sample_mock.call_args.kwargs["caption"])
+        info_mock.assert_called_once()
+
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.gr.Warning")
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.is_external_lm_active")
+    def test_handle_generate_random_narrative_caption_requires_lm(
+        self,
+        external_active_mock,
+        warning_mock,
+    ):
+        """Random-caption action should surface LM-not-initialized when LM is unavailable."""
+        llm_handler = SimpleNamespace(llm_initialized=False)
+        external_active_mock.return_value = False
+
+        result = generation_handlers.handle_generate_random_narrative_caption(
+            llm_handler=llm_handler,
+            bpm=90,
+            audio_duration=20.0,
+            key_scale="C minor",
+            time_signature="4/4",
+            lm_temperature=0.8,
+            lm_top_k=10,
+            lm_top_p=0.9,
+            constrained_decoding_debug=False,
+        )
+
+        self.assertEqual(_t("messages.lm_not_initialized"), result[-1])
+        warning_mock.assert_called_once_with(_t("messages.lm_not_initialized"))
+
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.gr.Info")
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.format_sample")
+    def test_handle_generate_lyrics_from_caption_applies_vocal_language(
+        self,
+        format_sample_mock,
+        info_mock,
+    ):
+        """Generate-lyrics action should use vocal-language constraint and fresh lyric seed."""
+        llm_handler = SimpleNamespace(llm_initialized=True)
+        format_sample_mock.return_value = SimpleNamespace(
+            success=True,
+            caption="unused",
+            lyrics="new generated lyrics",
+            bpm=100,
+            duration=20.0,
+            keyscale="D minor",
+            language="ja",
+            timesignature="4/4",
+            status_message="formatted",
+        )
+
+        result = generation_handlers.handle_generate_lyrics_from_caption(
+            llm_handler=llm_handler,
+            caption="dreamy city-pop at night",
+            bpm=96,
+            audio_duration=24.0,
+            key_scale="A minor",
+            time_signature="4/4",
+            vocal_language="ja",
+            lm_temperature=0.9,
+            lm_top_k=10,
+            lm_top_p=0.9,
+            constrained_decoding_debug=False,
+        )
+
+        self.assertEqual("new generated lyrics", result[0])
+        self.assertIn("Lyrics generated from caption.", result[-1])
+        called_kwargs = format_sample_mock.call_args.kwargs
+        self.assertEqual("[Generate full lyrics in ja]", called_kwargs["lyrics"])
+        self.assertEqual("ja", called_kwargs["user_metadata"]["language"])
+        info_mock.assert_called_once()
+
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.gr.Warning")
+    def test_handle_generate_lyrics_from_caption_requires_lm(self, warning_mock):
+        """Generate-lyrics action should show LM-not-initialized when no LM/external runtime."""
+        llm_handler = SimpleNamespace(llm_initialized=False)
+
+        result = generation_handlers.handle_generate_lyrics_from_caption(
+            llm_handler=llm_handler,
+            caption="caption",
+            bpm=100,
+            audio_duration=20.0,
+            key_scale="D minor",
+            time_signature="4/4",
+            vocal_language="en",
+            lm_temperature=0.85,
+            lm_top_k=0,
+            lm_top_p=0.9,
+            constrained_decoding_debug=False,
+        )
+
+        self.assertEqual(_t("messages.lm_not_initialized"), result[-1])
+        warning_mock.assert_called_once_with(_t("messages.lm_not_initialized"))
+
 
 @unittest.skipIf(generation_handlers is None, f"generation_handlers import unavailable: {_IMPORT_ERROR}")
 class LoadMetadataLmCodesTests(unittest.TestCase):
@@ -450,6 +715,84 @@ class LoadMetadataLmCodesTests(unittest.TestCase):
 
         think_value = result[30]
         self.assertTrue(think_value, "think should remain True when audio_codes is empty")
+
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.gr.Warning")
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.gr.Info")
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.is_external_lm_active", return_value=True)
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.get_global_gpu_config")
+    def test_load_metadata_keeps_think_true_when_external_lm_active(
+        self,
+        gpu_mock,
+        _external_active_mock,
+        info_mock,
+        warning_mock,
+    ):
+        """External LM active should satisfy think gate even when local LM is not initialized."""
+        import tempfile
+        gpu_cfg = MagicMock()
+        gpu_cfg.max_batch_size_with_lm = 8
+        gpu_cfg.max_batch_size_without_lm = 8
+        gpu_mock.return_value = gpu_cfg
+
+        llm_handler = SimpleNamespace(llm_initialized=False)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_obj = self._write_json(tmpdir, {
+                "thinking": True,
+                "audio_codes": "",
+            })
+            result = generation_handlers.load_metadata(file_obj, llm_handler)
+
+        self.assertTrue(result[30], "think should remain True when external LM mode is active")
+        warning_mock.assert_not_called()
+        info_mock.assert_called_once()
+
+
+@unittest.skipIf(generation_handlers is None, f"generation_handlers import unavailable: {_IMPORT_ERROR}")
+class LoadRandomExampleExternalLmTests(unittest.TestCase):
+    """Tests that random example loading respects external LM mode for think gating."""
+
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.gr.Warning")
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.gr.Info")
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.random.choice")
+    @patch("acestep.ui.gradio.events.generation.metadata_loading._get_project_root")
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.is_external_lm_active", return_value=True)
+    def test_load_random_example_keeps_think_true_when_external_lm_active(
+        self,
+        _external_active_mock,
+        get_project_root_mock,
+        random_choice_mock,
+        info_mock,
+        warning_mock,
+    ):
+        """Example loader should not warn or disable think when external LM mode is active."""
+        import json
+        import os
+        import tempfile
+
+        llm_handler = SimpleNamespace(llm_initialized=False)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            examples_dir = os.path.join(tmpdir, "examples", "text2music")
+            os.makedirs(examples_dir, exist_ok=True)
+            sample_file = os.path.join(examples_dir, "sample.json")
+            with open(sample_file, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "caption": "ambient pad swell",
+                        "lyrics": "[Instrumental]",
+                        "think": True,
+                        "bpm": 92,
+                    },
+                    handle,
+                )
+
+            get_project_root_mock.return_value = tmpdir
+            random_choice_mock.return_value = sample_file
+            result = generation_handlers.load_random_example("text2music", llm_handler)
+
+        self.assertTrue(result[2], "think should remain enabled under external LM mode")
+        warning_mock.assert_not_called()
+        info_mock.assert_called_once()
 
 
 @unittest.skipIf(generation_handlers is None, f"generation_handlers import unavailable: {_IMPORT_ERROR}")

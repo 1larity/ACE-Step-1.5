@@ -100,8 +100,18 @@ def build_custom_mode_controls() -> dict[str, Any]:
                                 size="sm",
                                 scale=2,
                             )
-            with gr.Column(scale=1, min_width=80, elem_classes="icon-btn-wrap"):
+            with gr.Column(scale=1, min_width=140, elem_classes="icon-btn-wrap"):
                 sample_btn = gr.Button(t("generation.sample_btn"), variant="primary", size="lg")
+                random_caption_btn = gr.Button(
+                    t("generation.random_narrative_caption_btn"),
+                    variant="secondary",
+                    size="sm",
+                )
+                generate_lyrics_btn = gr.Button(
+                    t("generation.generate_lyrics_btn"),
+                    variant="secondary",
+                    size="sm",
+                )
     return {
         "custom_mode_group": custom_mode_group,
         "reference_audio": reference_audio,
@@ -111,6 +121,8 @@ def build_custom_mode_controls() -> dict[str, Any]:
         "instrumental_checkbox": instrumental_checkbox,
         "format_lyrics_btn": format_lyrics_btn,
         "sample_btn": sample_btn,
+        "generate_lyrics_btn": generate_lyrics_btn,
+        "random_caption_btn": random_caption_btn,
     }
 
 

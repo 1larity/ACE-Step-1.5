@@ -50,6 +50,66 @@ class GenerationServiceWiringTests(unittest.TestCase):
         }
         self.assertIn("_apply_runtime_language", function_names)
 
+    def test_registers_lm_model_path_change_handler(self):
+        """Service wiring should attach a change handler for lm_model_path dropdown."""
+
+        module = ast.parse(_WIRING_PATH.read_text(encoding="utf-8"))
+        register_fn = next(
+            node
+            for node in module.body
+            if isinstance(node, ast.FunctionDef) and node.name == "register_generation_service_handlers"
+        )
+
+        found_lm_model_change = False
+        for node in ast.walk(register_fn):
+            if not isinstance(node, ast.Call):
+                continue
+            if not isinstance(node.func, ast.Attribute) or node.func.attr != "change":
+                continue
+            if not isinstance(node.func.value, ast.Subscript):
+                continue
+            target = node.func.value
+            if (
+                isinstance(target.value, ast.Name)
+                and target.value.id == "generation_section"
+                and isinstance(target.slice, ast.Constant)
+                and target.slice.value == "lm_model_path"
+            ):
+                found_lm_model_change = True
+                break
+
+        self.assertTrue(found_lm_model_change, "lm_model_path.change handler was not found")
+
+    def test_registers_external_lm_save_click_handler(self):
+        """Service wiring should attach click handler for external settings save action."""
+
+        module = ast.parse(_WIRING_PATH.read_text(encoding="utf-8"))
+        register_fn = next(
+            node
+            for node in module.body
+            if isinstance(node, ast.FunctionDef) and node.name == "register_generation_service_handlers"
+        )
+
+        found_save_click = False
+        for node in ast.walk(register_fn):
+            if not isinstance(node, ast.Call):
+                continue
+            if not isinstance(node.func, ast.Attribute) or node.func.attr != "click":
+                continue
+            if not isinstance(node.func.value, ast.Subscript):
+                continue
+            target = node.func.value
+            if (
+                isinstance(target.value, ast.Name)
+                and target.value.id == "generation_section"
+                and isinstance(target.slice, ast.Constant)
+                and target.slice.value == "external_lm_save_btn"
+            ):
+                found_save_click = True
+                break
+
+        self.assertTrue(found_save_click, "external_lm_save_btn.click handler was not found")
+
 
 if __name__ == "__main__":
     unittest.main()

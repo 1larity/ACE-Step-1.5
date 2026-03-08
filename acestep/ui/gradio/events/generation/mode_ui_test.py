@@ -10,6 +10,7 @@ back to Custom/Simple modes after Remix/Repaint forced it off.
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 try:
     from acestep.ui.gradio.events.generation.mode_ui import compute_mode_ui_updates
@@ -179,6 +180,16 @@ class ModeUiStateClearingTests(unittest.TestCase):
         think_update = result[_IDX_THINK_CHECKBOX]
         self.assertFalse(think_update.get("value"))
         self.assertFalse(think_update.get("interactive"))
+
+    @patch("acestep.ui.gradio.events.generation.mode_ui.is_external_lm_active")
+    def test_external_lm_active_enables_think_checkbox(self, external_active_mock):
+        """External LM mode should allow think-checkbox interaction in Custom mode."""
+        external_active_mock.return_value = True
+        llm_handler = SimpleNamespace(llm_initialized=False)
+        result = compute_mode_ui_updates("Custom", llm_handler=llm_handler, previous_mode="Remix")
+        think_update = result[_IDX_THINK_CHECKBOX]
+        self.assertTrue(think_update.get("value"))
+        self.assertTrue(think_update.get("interactive"))
 
     def test_non_extract_modes_do_not_force_auto_fields_interactive(self):
         """Mode switches should not re-enable auto-managed metadata fields."""

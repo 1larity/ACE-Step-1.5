@@ -10,6 +10,7 @@ This guide provides comprehensive documentation for using the ACE-Step Gradio we
 
 - [Getting Started](#getting-started)
 - [Service Configuration](#service-configuration)
+- [External LLM Configuration](#external-llm-configuration)
 - [Generation Modes](#generation-modes)
 - [Input Parameters](#input-parameters)
 - [Advanced Settings](#advanced-settings)
@@ -24,14 +25,24 @@ This guide provides comprehensive documentation for using the ACE-Step Gradio we
 ### Launching the Demo
 
 ```bash
-# Basic launch
+# Recommended launch (auto environment + dependency management)
+uv run acestep
+
+# REST API
+uv run acestep-api
+
+# Linux launcher scripts (includes compatibility checks)
+./start_gradio_ui.sh
+./start_api_server.sh
+```
+
+> **Pre-Ampere NVIDIA note (Pascal / some Quadro):** Linux launchers auto-detect unsupported CUDA
+> arch wheels and apply a legacy torch compatibility patch when required. Normal systems continue
+> with standard synced `uv run`.
+
+```bash
+# Direct Python entry still works if you manage your own environment
 python app.py
-
-# With pre-initialization
-python app.py --config acestep-v15-turbo --init-llm
-
-# With specific port
-python app.py --port 7860
 ```
 
 ### Interface Overview
@@ -66,6 +77,40 @@ The Gradio interface is organized as follows:
 | **Initialize 5Hz LM** | Check to load the LM during initialization (required for thinking mode). **Automatically unchecked and disabled on GPUs ≤6GB** (Tier 1-2). |
 
 > **Adaptive Defaults**: All LM settings are automatically configured based on your GPU's VRAM tier. The recommended LM model, backend, and initialization state are pre-set for optimal performance. You can manually override these, but the system will warn you if your selection is incompatible with your GPU.
+
+## External LLM Configuration
+
+ACE-Step now includes a dedicated **External LLM** tab beside **Service Config** inside the
+Settings accordion.
+
+### External LLM Tab
+
+| Setting | Description |
+|---------|-------------|
+| **Provider** | Built-in provider profiles: Z.ai (GLM), OpenAI, Anthropic Claude, Ollama |
+| **Protocol** | API protocol (`openai_chat` or `anthropic_messages`) |
+| **Model** | Selected external model ID (editable). Use **Fetch Models** to auto-populate from endpoint |
+| **Base URL** | Provider endpoint URL (chat-completions/messages) |
+| **API Key** | Session key input (can be persisted encrypted) |
+| **Store Passphrase** | Passphrase used to encrypt/decrypt saved API key |
+| **Save passphrase to system keyring** | Stores passphrase for non-interactive runtime after restart |
+| **Save External LLM Settings** | Enables external mode and syncs model selection back to 5Hz LM dropdown |
+| **Check External Runtime** | Runtime doctor for key/passphrase/config readiness |
+
+### Persistence and Security
+
+- Non-secret provider settings are persisted to:
+  - `~/.local/share/acestep/config/external_lm_runtime.json`
+- Encrypted provider API keys are stored under:
+  - `~/.local/share/acestep/secrets/` (for example `glm_api_key.enc`)
+- API keys are encrypted at rest using OpenSSL; passphrase is required unless provided by keyring/env.
+
+### How It Integrates With 5Hz LM
+
+- The **5Hz LM Model Path** dropdown shows local 5Hz models plus the currently configured external entry (for example `external:zai:glm-5`).
+- Selecting an external entry activates external runtime mode.
+- Switching back to a local 5Hz model deactivates external mode, but keeps your external provider configuration available for re-selection.
+- When external mode is active, **Create Sample**, **Enhance Caption/Lyrics**, **Generate Lyrics**, and **Think/CoT metadata tasks** can run through the external provider without requiring local 5Hz LM initialization.
 
 ### Performance Options
 
@@ -118,6 +163,8 @@ Designed for quick, natural language-based music generation.
 6. Review the generated content in the expanded sections
 7. Click **Generate Music** to create the audio
 
+If external mode is selected in **5Hz LM Model Path**, this flow uses your configured external provider.
+
 **Example descriptions:**
 - "a soft Bengali love song for a quiet evening"
 - "upbeat electronic dance music with heavy bass drops"
@@ -135,7 +182,11 @@ Full control over all generation parameters (text2music).
 2. Manually fill in the Caption and Lyrics fields
 3. Optionally upload Reference Audio for style guidance
 4. Set optional metadata (BPM, Key, Duration, etc.)
-5. Optionally click **Format** to enhance your input using the LM
+5. Optionally use text actions:
+   - **Enhance Caption**: rewrites only caption
+   - **Enhance Lyrics**: rewrites only lyrics
+   - **Generate Lyrics**: generates lyrics from caption and selected vocal language
+   - **Random Narrative Caption**: creates a new narrative caption from a random genre seed
 6. Configure advanced settings as needed
 7. Click **Generate Music** to create the audio
 
@@ -249,7 +300,11 @@ This is where I belong
 
 **Vocal Language:** Select the language for vocals. Use "unknown" for auto-detection or instrumental tracks.
 
-**Format button:** Click to enhance caption and lyrics using the 5Hz LM.
+**Text actions (Custom mode):**
+- **Enhance Caption**: improve caption only
+- **Enhance Lyrics**: improve lyrics only
+- **Generate Lyrics**: generate lyrics from current caption (respects selected vocal language)
+- **Random Narrative Caption**: generate a fresh caption from a random genre/narrative seed
 
 ### Optional Parameters
 
@@ -317,7 +372,7 @@ This is where I belong
 
 | Control | Description |
 |---------|-------------|
-| **Think** | Enable 5Hz LM for code generation and metadata |
+| **Think** | Enable LM planning for code generation and metadata (local 5Hz LM or active external provider) |
 | **ParallelThinking** | Enable parallel LM batch processing |
 | **CaptionRewrite** | Let LM enhance the input caption |
 | **AutoGen** | Automatically start next batch after completion |
@@ -538,6 +593,13 @@ These options are especially useful when preprocessing takes a long time or you 
 - Check that a valid LM model path is selected (only tier-compatible models are shown)
 - Verify vllm or PyTorch backend is available (vllm restricted on GPUs <8GB)
 - If the LM checkbox is grayed out, your GPU tier does not support LM — use DiT-only mode
+
+**External LM not working:**
+- Open **External LLM** tab and click **Check External Runtime**
+- Confirm provider/model/base URL are correct for your account lane
+- Confirm API key is present (env or encrypted store) and passphrase source is available
+- If you see `1211`, model ID is invalid or unavailable for your account
+- If you see `1113`, quota/billing lane is unavailable (for Z.ai Coding Plan, use coding endpoint/model or top up balance)
 
 ---
 

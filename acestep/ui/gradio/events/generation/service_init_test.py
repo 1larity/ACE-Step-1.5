@@ -309,5 +309,70 @@ class InitServiceWrapperQuantizationTests(unittest.TestCase):
         self.assertEqual(kwargs["quantization"], "int8_weight_only")
 
 
+class InitServiceWrapperExternalLmTests(unittest.TestCase):
+    """Verify external LM dropdown selection activates provider mode."""
+
+    def _import_module(self):
+        """Import service_init lazily to avoid heavy transitive imports."""
+        from acestep.ui.gradio.events.generation import service_init
+        return service_init
+
+    @patch("acestep.ui.gradio.events.generation.service_init.activate_external_lm_mode")
+    @patch("acestep.ui.gradio.events.generation.service_init.deactivate_external_lm_mode")
+    @patch("acestep.ui.gradio.events.generation.service_init.get_global_gpu_config")
+    def test_external_model_selection_skips_local_llm_init(
+        self,
+        mock_gpu_config,
+        deactivate_external_lm_mode_mock,
+        activate_external_lm_mode_mock,
+    ):
+        """Selecting ``external:*`` should skip local LLM init and activate external mode."""
+        module = self._import_module()
+
+        mock_gpu_config.return_value = MagicMock(
+            available_lm_models=["acestep-5Hz-lm-1.7B"],
+            lm_backend_restriction=None,
+            tier="tier6",
+            gpu_memory_gb=24.0,
+            max_duration_with_lm=600,
+            max_duration_without_lm=600,
+            max_batch_size_with_lm=4,
+            max_batch_size_without_lm=8,
+        )
+
+        activate_external_lm_mode_mock.return_value = MagicMock(
+            provider="glm",
+            model="glm-4.5-flash",
+        )
+
+        dit_handler = MagicMock()
+        dit_handler.initialize_service.return_value = ("ok", True)
+        dit_handler.model = MagicMock()
+        dit_handler.is_turbo_model.return_value = True
+
+        llm_handler = MagicMock()
+        llm_handler.llm_initialized = False
+
+        module.init_service_wrapper(
+            dit_handler,
+            llm_handler,
+            "/some/project/checkpoints",
+            "acestep-v15-turbo",
+            "cpu",
+            True,
+            "external:glm-4.5-flash",
+            "pt",
+            False,
+            False,
+            False,
+            False,
+            False,
+        )
+
+        llm_handler.initialize.assert_not_called()
+        activate_external_lm_mode_mock.assert_called_once_with("external:glm-4.5-flash")
+        deactivate_external_lm_mode_mock.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
