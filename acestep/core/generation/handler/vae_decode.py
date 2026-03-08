@@ -1,6 +1,6 @@
 """VAE decode orchestration helpers for tiled latent-to-audio conversion."""
 
-from typing import Optional
+from typing import Callable, Optional
 
 import torch
 from loguru import logger
@@ -19,6 +19,7 @@ class VaeDecodeMixin:
         chunk_size: Optional[int] = None,
         overlap: int = 64,
         offload_wav_to_cpu: Optional[bool] = None,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ):
         """Decode latents using tiling to reduce VRAM usage.
 
@@ -32,6 +33,8 @@ class VaeDecodeMixin:
             overlap: Overlap in latent frames between adjacent windows.
             offload_wav_to_cpu: Whether decoded waveform chunks should be
                 offloaded to CPU immediately to reduce VRAM pressure.
+            progress_callback: Optional callback receiving ``(current, total)``
+                chunk counts during tiled decode.
 
         Returns:
             Decoded waveform tensor shaped ``[batch, audio_channels, samples]``.
@@ -74,7 +77,13 @@ class VaeDecodeMixin:
                 overlap = min(overlap, _mps_overlap)
 
         try:
-            return self._tiled_decode_inner(latents, chunk_size, overlap, offload_wav_to_cpu)
+            return self._tiled_decode_inner(
+                latents,
+                chunk_size,
+                overlap,
+                offload_wav_to_cpu,
+                decode_progress_callback=progress_callback,
+            )
         except (NotImplementedError, RuntimeError) as exc:
             if not _is_mps:
                 raise

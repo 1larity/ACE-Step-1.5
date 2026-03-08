@@ -14,6 +14,46 @@ from acestep.gpu_config import get_effective_free_vram_gb
 class GenerateMusicDecodeMixin:
     """Validate generated latents and decode them into waveform tensors."""
 
+    @staticmethod
+    def _is_cpu_stability_cuda_vae_enabled() -> bool:
+        """Return whether CPU runtime may temporarily use CUDA for VAE decode."""
+        return os.environ.get("ACESTEP_CPU_STABILITY_USE_CUDA_VAE", "1").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+
+    @staticmethod
+    def _cpu_stability_cuda_vae_min_free_gb() -> float:
+        """Return minimum free VRAM required before CPU runtime attempts CUDA VAE decode."""
+        raw = os.environ.get("ACESTEP_CPU_STABILITY_VAE_MIN_FREE_GB", "").strip()
+        if not raw:
+            return 1.0
+        try:
+            value = float(raw)
+        except ValueError:
+            return 1.0
+        return max(0.0, value)
+
+    def _should_try_cuda_vae_decode_from_cpu(self, using_mlx_vae: bool) -> bool:
+        """Return whether CPU runtime should attempt temporary CUDA VAE decode."""
+        if using_mlx_vae:
+            return False
+        if not self._is_cpu_stability_cuda_vae_enabled():
+            return False
+        if getattr(self, "device", None) != "cpu":
+            return False
+        if not torch.cuda.is_available():
+            return False
+        if os.environ.get("ACESTEP_VAE_ON_CPU", "0").lower() in ("1", "true", "yes"):
+            return False
+        min_free_gb = self._cpu_stability_cuda_vae_min_free_gb()
+        try:
+            free_gb = float(get_effective_free_vram_gb())
+        except Exception:
+            return False
+        return free_gb >= min_free_gb
+
     def _prepare_generate_music_decode_state(
         self,
         outputs: Dict[str, Any],
@@ -115,6 +155,8 @@ class GenerateMusicDecodeMixin:
         progress: Any,
         use_tiled_decode: bool,
         time_costs: Dict[str, Any],
+        decode_progress_start: float = 0.8,
+        decode_progress_end: float = 0.98,
     ) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, Any]]:
         """Decode predicted latents and update decode timing metrics.
 
@@ -123,12 +165,25 @@ class GenerateMusicDecodeMixin:
             progress: Optional progress callback.
             use_tiled_decode: Whether tiled VAE decode should be used.
             time_costs: Mutable time-cost payload from service generation.
+            decode_progress_start: Progress value emitted when decode starts.
+            decode_progress_end: Progress value reached when decode chunking finishes.
 
         Returns:
             Tuple of decoded waveforms, CPU latents, and updated time-cost payload.
         """
         if progress:
-            progress(0.8, desc="Decoding audio...")
+            progress(float(decode_progress_start), desc="Decoding audio...")
+
+        def _on_decode_chunk_progress(current: int, total: int) -> None:
+            """Map tiled decode chunk progress into Gradio progress range."""
+            if progress is None or total <= 0:
+                return
+            ratio = min(1.0, max(0.0, float(current) / float(total)))
+            value = float(decode_progress_start) + (
+                (float(decode_progress_end) - float(decode_progress_start)) * ratio
+            )
+            progress(value, desc=f"Decoding audio ({current}/{total} chunks)...")
+
         logger.info("[generate_music] Decoding latents with VAE...")
         start_time = time.time()
         with torch.inference_mode():
@@ -146,6 +201,31 @@ class GenerateMusicDecodeMixin:
                 using_mlx_vae = self.use_mlx_vae and self.mlx_vae is not None
                 vae_cpu = False
                 vae_device = None
+                promoted_vae_to_cuda = False
+                should_try_cuda_vae = self._should_try_cuda_vae_decode_from_cpu(using_mlx_vae)
+                if should_try_cuda_vae:
+                    try:
+                        vae_device = next(self.vae.parameters()).device
+                    except StopIteration:
+                        vae_device = torch.device("cpu")
+                    try:
+                        logger.info(
+                            "[generate_music] CPU stability runtime: attempting temporary CUDA VAE decode "
+                            "(ACESTEP_CPU_STABILITY_USE_CUDA_VAE=1)."
+                        )
+                        self.vae = self.vae.to("cuda")
+                        pred_latents_for_decode = pred_latents_for_decode.to("cuda")
+                        promoted_vae_to_cuda = True
+                    except Exception as exc:
+                        logger.warning(
+                            "[generate_music] Temporary CUDA VAE decode promotion failed ({}); "
+                            "continuing with CPU VAE decode.",
+                            exc,
+                        )
+                        self.vae = self.vae.cpu()
+                        pred_latents_for_decode = pred_latents_for_decode.cpu()
+                        promoted_vae_to_cuda = False
+                        self._empty_cache()
                 if not using_mlx_vae:
                     vae_cpu = os.environ.get("ACESTEP_VAE_ON_CPU", "0").lower() in ("1", "true", "yes")
                     if not vae_cpu:
@@ -166,7 +246,7 @@ class GenerateMusicDecodeMixin:
                                     f"{effective_free:.2f} GB free VRAM; auto-enabling CPU VAE decode"
                                 )
                                 vae_cpu = True
-                    if vae_cpu:
+                    if vae_cpu and not promoted_vae_to_cuda:
                         logger.info("[generate_music] Moving VAE to CPU for decode (ACESTEP_VAE_ON_CPU=1)...")
                         vae_device = next(self.vae.parameters()).device
                         self.vae = self.vae.cpu()
@@ -175,7 +255,10 @@ class GenerateMusicDecodeMixin:
                 try:
                     if use_tiled_decode:
                         logger.info("[generate_music] Using tiled VAE decode to reduce VRAM usage...")
-                        pred_wavs = self.tiled_decode(pred_latents_for_decode)
+                        pred_wavs = self.tiled_decode(
+                            pred_latents_for_decode,
+                            progress_callback=_on_decode_chunk_progress,
+                        )
                     elif using_mlx_vae:
                         try:
                             pred_wavs = self._mlx_vae_decode(pred_latents_for_decode)
@@ -190,8 +273,27 @@ class GenerateMusicDecodeMixin:
                         decoder_output = self.vae.decode(pred_latents_for_decode)
                         pred_wavs = decoder_output.sample
                         del decoder_output
+                except torch.cuda.OutOfMemoryError:
+                    if not promoted_vae_to_cuda:
+                        raise
+                    logger.warning(
+                        "[generate_music] CUDA VAE decode ran out of memory; retrying decode on CPU VAE."
+                    )
+                    self.vae = self.vae.cpu()
+                    pred_latents_for_decode = pred_latents_for_decode.cpu()
+                    promoted_vae_to_cuda = False
+                    self._empty_cache()
+                    if use_tiled_decode:
+                        pred_wavs = self.tiled_decode(
+                            pred_latents_for_decode,
+                            progress_callback=_on_decode_chunk_progress,
+                        )
+                    else:
+                        decoder_output = self.vae.decode(pred_latents_for_decode)
+                        pred_wavs = decoder_output.sample
+                        del decoder_output
                 finally:
-                    if vae_cpu and vae_device is not None:
+                    if (vae_cpu or promoted_vae_to_cuda) and vae_device is not None:
                         logger.info("[generate_music] Restoring VAE to original device after CPU decode path...")
                         self.vae = self.vae.to(vae_device)
                     self._empty_cache()

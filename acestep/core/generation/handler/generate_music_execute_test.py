@@ -23,6 +23,12 @@ class _Host(GenerateMusicExecuteMixin):
         self.service_calls += 1
         if callable(self._runtime_progress_callback):
             self._runtime_progress_callback(
+                stage="encoding",
+                current=1,
+                total=2,
+                desc="Text encoding",
+            )
+            self._runtime_progress_callback(
                 stage="diffusion",
                 current=4,
                 total=8,
@@ -110,6 +116,51 @@ class GenerateMusicExecuteMixinTests(unittest.TestCase):
 
         self.assertTrue(progress_values)
         self.assertTrue(any(value > 0.5 for value, _ in progress_values))
+
+    def test_run_service_with_progress_honors_custom_phase_ranges(self):
+        """Runtime event mapping should honor custom phase boundaries."""
+        host = _Host()
+        progress_values = []
+
+        def _progress(value, desc=None):
+            """Capture forwarded progress updates."""
+            progress_values.append((value, desc))
+
+        host._run_generate_music_service_with_progress(
+            progress=_progress,
+            actual_batch_size=1,
+            audio_duration=10.0,
+            inference_steps=8,
+            timesteps=None,
+            service_inputs={
+                "captions_batch": ["c"],
+                "lyrics_batch": ["l"],
+                "metas_batch": ["m"],
+                "vocal_languages_batch": ["en"],
+                "target_wavs_tensor": None,
+                "repainting_start_batch": [0.0],
+                "repainting_end_batch": [1.0],
+                "instructions_batch": ["i"],
+                "audio_code_hints_batch": None,
+                "should_return_intermediate": True,
+            },
+            refer_audios=None,
+            guidance_scale=7.0,
+            actual_seed_list=[1],
+            audio_cover_strength=1.0,
+            cover_noise_strength=0.0,
+            use_adg=False,
+            cfg_interval_start=0.0,
+            cfg_interval_end=1.0,
+            shift=1.0,
+            infer_method="ode",
+            phase_ranges={"service_start": 0.20, "encoding_end": 0.34, "diffusion_end": 0.70},
+        )
+
+        self.assertTrue(progress_values)
+        values_only = [value for value, _ in progress_values]
+        self.assertTrue(any(abs(value - 0.27) < 0.05 for value in values_only))
+        self.assertTrue(any(abs(value - 0.52) < 0.08 for value in values_only))
 
 
 if __name__ == "__main__":

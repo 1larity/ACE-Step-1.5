@@ -21,6 +21,12 @@ from acestep.gpu_config import (
     get_gpu_memory_gb,
 )
 
+_DEFAULT_PROGRESS_PHASE_RANGES = {
+    "service_start": 0.30,
+    "encoding_end": 0.45,
+    "diffusion_end": 0.79,
+}
+
 
 class GenerateMusicMixin:
     """Coordinate request prep, service execution, decode, and payload assembly.
@@ -299,6 +305,27 @@ class GenerateMusicMixin:
             diffusion_total_pct,
         )
 
+    def _resolve_generation_phase_ranges(self) -> Dict[str, float]:
+        """Resolve progress phase ranges from persisted machine profile or defaults."""
+        resolver = getattr(self, "_get_progress_phase_ranges", None)
+        if callable(resolver):
+            resolved = resolver()
+            if isinstance(resolved, dict):
+                return resolved
+        return dict(_DEFAULT_PROGRESS_PHASE_RANGES)
+
+    @staticmethod
+    def _scale_setup_progress_checkpoint(service_start: float, ratio: float) -> float:
+        """Map setup checkpoint ``ratio`` into ``[0.05, service_start]`` progress range."""
+        ratio = max(0.0, min(1.0, float(ratio)))
+        return 0.05 + ((float(service_start) - 0.05) * ratio)
+
+    @staticmethod
+    def _resolve_decode_progress_start(phase_ranges: Dict[str, float]) -> float:
+        """Return decode stage start progress just after diffusion range end."""
+        diffusion_end = float(phase_ranges.get("diffusion_end", 0.79))
+        return max(diffusion_end, min(0.97, diffusion_end + 0.01))
+
     def generate_music(
         self,
         captions: str,
@@ -371,6 +398,10 @@ class GenerateMusicMixin:
         stage_timings: Dict[str, float] = {}
         last_time_costs: Optional[Dict[str, Any]] = None
         generation_start = time.perf_counter()
+        phase_ranges = self._resolve_generation_phase_ranges()
+        service_start_progress = float(phase_ranges.get("service_start", 0.30))
+        diffusion_end_progress = float(phase_ranges.get("diffusion_end", 0.79))
+        decode_start_progress = self._resolve_decode_progress_start(phase_ranges)
         if self.model is None or self.vae is None or self.text_tokenizer is None or self.text_encoder is None:
             readiness_error = self._validate_generate_music_readiness()
             return readiness_error
@@ -454,7 +485,10 @@ class GenerateMusicMixin:
         audio_duration = runtime["audio_duration"]
         repainting_end = runtime["repainting_end"]
         if progress:
-            progress(0.10, desc="Preparing reference/source audio...")
+            progress(
+                self._scale_setup_progress_checkpoint(service_start_progress, 0.20),
+                desc="Preparing reference/source audio...",
+            )
 
         try:
             reference_stage_start = time.perf_counter()
@@ -469,7 +503,10 @@ class GenerateMusicMixin:
             if audio_error is not None:
                 return audio_error
             if progress:
-                progress(0.18, desc="Building conditioning inputs...")
+                progress(
+                    self._scale_setup_progress_checkpoint(service_start_progress, 0.52),
+                    desc="Building conditioning inputs...",
+                )
 
             service_input_start = time.perf_counter()
             service_inputs = self._prepare_generate_music_service_inputs(
@@ -492,7 +529,10 @@ class GenerateMusicMixin:
             )
             stage_timings["service_input_stage_sec"] = time.perf_counter() - service_input_start
             if progress:
-                progress(0.24, desc="Running VRAM and setup checks...")
+                progress(
+                    self._scale_setup_progress_checkpoint(service_start_progress, 0.76),
+                    desc="Running VRAM and setup checks...",
+                )
 
             preflight_start = time.perf_counter()
             vram_error = self._vram_preflight_check(
@@ -515,7 +555,10 @@ class GenerateMusicMixin:
                     "(1-step diffusion probe before full generation)."
                 )
                 if progress:
-                    progress(0.27, desc="Running CUDA stability preflight...")
+                    progress(
+                        self._scale_setup_progress_checkpoint(service_start_progress, 0.88),
+                        desc="Running CUDA stability preflight...",
+                    )
                 canary_start = time.perf_counter()
                 canary_run = self._run_generate_music_service_with_progress(
                     progress=None,
@@ -534,6 +577,7 @@ class GenerateMusicMixin:
                     cfg_interval_end=cfg_interval_end,
                     shift=shift,
                     infer_method=infer_method,
+                    phase_ranges=phase_ranges,
                 )
                 stage_timings["canary_service_generate_sec"] = time.perf_counter() - canary_start
                 canary_outputs = canary_run["outputs"]
@@ -608,7 +652,7 @@ class GenerateMusicMixin:
                             canary_exc,
                         )
             if progress:
-                progress(0.30, desc="Starting diffusion...")
+                progress(service_start_progress, desc="Starting diffusion...")
 
             service_start = time.perf_counter()
             service_run = self._run_generate_music_service_with_progress(
@@ -628,6 +672,7 @@ class GenerateMusicMixin:
                 cfg_interval_end=cfg_interval_end,
                 shift=shift,
                 infer_method=infer_method,
+                phase_ranges=phase_ranges,
             )
             stage_timings["service_generate_sec"] = time.perf_counter() - service_start
             outputs = service_run["outputs"]
@@ -661,7 +706,7 @@ class GenerateMusicMixin:
                     "with safer settings (guidance_scale=1.0, use_adg=False)."
                 )
                 if progress:
-                    progress(0.79, desc="Retrying diffusion with safer settings...")
+                    progress(diffusion_end_progress, desc="Retrying diffusion with safer settings...")
                 retry_service_start = time.perf_counter()
                 service_run = self._run_generate_music_service_with_progress(
                     progress=None,
@@ -680,6 +725,7 @@ class GenerateMusicMixin:
                     cfg_interval_end=1.0,
                     shift=shift,
                     infer_method=infer_method,
+                    phase_ranges=phase_ranges,
                 )
                 stage_timings["service_generate_sec"] = (
                     stage_timings.get("service_generate_sec", 0.0)
@@ -714,7 +760,7 @@ class GenerateMusicMixin:
                         fallback_infer_method,
                     )
                     if progress:
-                        progress(0.79, desc="Retrying with fallback stability settings...")
+                        progress(diffusion_end_progress, desc="Retrying with fallback stability settings...")
                     final_retry_start = time.perf_counter()
                     service_run = self._run_generate_music_service_with_progress(
                         progress=None,
@@ -733,6 +779,7 @@ class GenerateMusicMixin:
                         cfg_interval_end=1.0,
                         shift=shift,
                         infer_method=fallback_infer_method,
+                        phase_ranges=phase_ranges,
                     )
                     stage_timings["service_generate_sec"] = (
                         stage_timings.get("service_generate_sec", 0.0)
@@ -777,7 +824,10 @@ class GenerateMusicMixin:
                                 "switching to int8_weight_only quantization and retrying once."
                             )
                             if progress:
-                                progress(0.79, desc="Switching to stable quantized mode and retrying...")
+                                progress(
+                                    diffusion_end_progress,
+                                    desc="Switching to stable quantized mode and retrying...",
+                                )
                             switch_status, switch_ok = self.switch_to_stable_quantized_preset()
                             if switch_ok:
                                 logger.info("[generate_music] {}", switch_status)
@@ -835,7 +885,10 @@ class GenerateMusicMixin:
                                 "switching to CPU stability preset and retrying once."
                             )
                             if progress:
-                                progress(0.79, desc="Switching to CPU stability mode and retrying...")
+                                progress(
+                                    diffusion_end_progress,
+                                    desc="Switching to CPU stability mode and retrying...",
+                                )
                             switch_status, switch_ok = self.switch_to_cpu_stability_preset()
                             if switch_ok:
                                 logger.info("[generate_music] {}", switch_status)
@@ -894,7 +947,10 @@ class GenerateMusicMixin:
                             "switching to non-quantized preset and retrying generation once."
                         )
                         if progress:
-                            progress(0.79, desc="Switching to non-quantized mode and retrying...")
+                            progress(
+                                diffusion_end_progress,
+                                desc="Switching to non-quantized mode and retrying...",
+                            )
                         switch_status, switch_ok = self.switch_to_training_preset()
                         if not switch_ok:
                             raise RuntimeError(
@@ -945,6 +1001,7 @@ class GenerateMusicMixin:
                 progress=progress,
                 use_tiled_decode=use_tiled_decode,
                 time_costs=time_costs,
+                decode_progress_start=decode_start_progress,
             )
             stage_timings["decode_stage_sec"] = time.perf_counter() - decode_start
             stage_timings["decode_total_sec"] = (
@@ -954,6 +1011,9 @@ class GenerateMusicMixin:
             stage_timings["total_orchestration_sec"] = time.perf_counter() - generation_start
             time_costs["setup_time_cost"] = stage_timings.get("setup_before_service_sec", 0.0)
             time_costs["service_generate_time_cost"] = stage_timings.get("service_generate_sec", 0.0)
+            phase_profile_updater = getattr(self, "_update_progress_phase_profile", None)
+            if callable(phase_profile_updater):
+                phase_profile_updater(stage_timings=stage_timings, time_costs=time_costs)
             if profile_progress:
                 self._log_generation_progress_profile(stage_timings=stage_timings, time_costs=time_costs)
             result = self._build_generate_music_success_payload(

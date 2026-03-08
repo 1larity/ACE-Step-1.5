@@ -17,6 +17,26 @@ _DEFAULT_GENERATION_TIMEOUT = int(os.environ.get("ACESTEP_GENERATION_TIMEOUT", "
 class GenerateMusicExecuteMixin:
     """Run service generation with timeout and thread-safe progress forwarding."""
 
+    @staticmethod
+    def _resolve_progress_phase_ranges(phase_ranges: Optional[Dict[str, float]]) -> Dict[str, float]:
+        """Return normalized phase ranges with safe defaults when no helper is available."""
+        defaults = {"service_start": 0.30, "encoding_end": 0.45, "diffusion_end": 0.79}
+        if not isinstance(phase_ranges, dict):
+            return defaults
+        merged = dict(defaults)
+        for key in defaults:
+            value = phase_ranges.get(key)
+            if isinstance(value, (int, float)):
+                merged[key] = float(value)
+        service_start = max(0.05, min(0.55, merged["service_start"]))
+        encoding_end = max(service_start + 0.04, min(0.88, merged["encoding_end"]))
+        diffusion_end = max(encoding_end + 0.08, min(0.95, merged["diffusion_end"]))
+        return {
+            "service_start": service_start,
+            "encoding_end": encoding_end,
+            "diffusion_end": diffusion_end,
+        }
+
     def _run_generate_music_service_with_progress(
         self,
         progress: Any,
@@ -35,6 +55,7 @@ class GenerateMusicExecuteMixin:
         cfg_interval_end: float,
         shift: float,
         infer_method: str,
+        phase_ranges: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Any]:
         """Invoke ``service_generate`` while relaying progress to the request thread.
 
@@ -57,11 +78,19 @@ class GenerateMusicExecuteMixin:
                 max_progress = next_value
             progress(next_value, desc=desc or progress_desc)
 
-        _report_progress(0.30, desc=progress_desc)
+        normalize_ranges = getattr(self, "_normalize_progress_phase_ranges", None)
+        if callable(normalize_ranges):
+            normalized_ranges = normalize_ranges(phase_ranges)
+        else:
+            normalized_ranges = self._resolve_progress_phase_ranges(phase_ranges)
+        service_start = normalized_ranges["service_start"]
+        encoding_end = normalized_ranges["encoding_end"]
+        diffusion_end = normalized_ranges["diffusion_end"]
+        _report_progress(service_start, desc=progress_desc)
 
         stage_ranges = {
-            "encoding": (0.30, 0.45),
-            "diffusion": (0.45, 0.79),
+            "encoding": (service_start, encoding_end),
+            "diffusion": (encoding_end, diffusion_end),
         }
         runtime_progress_setter = getattr(self, "_set_runtime_progress_callback", None)
 
@@ -151,7 +180,10 @@ class GenerateMusicExecuteMixin:
                 _drain_progress_events()
                 elapsed = time.monotonic() - start_wait_ts
                 est_frac = min(0.999, elapsed / expected_sec) if expected_sec > 0 else 0.0
-                _report_progress(0.45 + (0.79 - 0.45) * est_frac, desc=progress_desc)
+                _report_progress(
+                    encoding_end + (diffusion_end - encoding_end) * est_frac,
+                    desc=progress_desc,
+                )
                 if time.monotonic() >= deadline and gen_thread.is_alive():
                     logger.error(
                         f"[generate_music] service_generate exceeded {_DEFAULT_GENERATION_TIMEOUT}s "

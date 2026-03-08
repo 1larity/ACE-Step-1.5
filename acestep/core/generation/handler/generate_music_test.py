@@ -443,6 +443,32 @@ class GenerateMusicMixinTests(unittest.TestCase):
         self.assertEqual(host.cpu_switch_calls, 1)
         self.assertEqual(len(host.service_run_calls), 2)
 
+    def test_generate_music_uses_profiled_phase_ranges_for_progress_mapping(self):
+        """It forwards profiled phase ranges to service/decode progress mapping."""
+        host = _Host()
+        host._get_progress_phase_ranges = lambda: {
+            "service_start": 0.20,
+            "encoding_end": 0.32,
+            "diffusion_end": 0.74,
+        }
+        progress_values = []
+
+        def _progress(value, desc=None):
+            """Capture progress checkpoints emitted by orchestration."""
+            progress_values.append((value, desc))
+
+        out = host.generate_music(captions="cap", lyrics="lyr", progress=_progress)
+        self.assertEqual(out, host._final_payload)
+        self.assertEqual(
+            host.calls["_run_generate_music_service_with_progress"]["phase_ranges"]["service_start"],
+            0.20,
+        )
+        self.assertEqual(
+            host.calls["_decode_generate_music_pred_latents"]["decode_progress_start"],
+            0.75,
+        )
+        self.assertTrue(any(abs(value - 0.20) < 1e-6 for value, _ in progress_values))
+
 
 class NonQuantizedFallbackGateTests(unittest.TestCase):
     """Verify non-quantized fallback gating behavior on CUDA memory detection."""

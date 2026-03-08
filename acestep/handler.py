@@ -136,7 +136,7 @@ class AceStepHandler(
         self._runtime_progress_callback = None
         self._last_diffusion_per_step_sec: Optional[float] = None
         self._progress_estimates_lock = threading.Lock()
-        self._progress_estimates = {"records": []}
+        self._progress_estimates = {"records": [], "phase_profiles": {}}
         self._progress_estimates_path = os.path.join(
             self._get_project_root(),
             ".cache",
