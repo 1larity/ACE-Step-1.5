@@ -7,6 +7,7 @@ checkpoints, and handling GPU tier changes.
 import os
 import sys
 import gradio as gr
+import torch
 from loguru import logger
 
 from acestep.ui.gradio.i18n import t
@@ -39,6 +40,17 @@ def init_service_wrapper(
             after reinitialization (optional).
     """
     quant_value = "int8_weight_only" if quantization else None
+    if quantization and device in {"auto", "cuda"}:
+        try:
+            if torch.cuda.is_available():
+                major, _ = torch.cuda.get_device_capability(0)
+                if major < 7:
+                    quant_value = "w8a8_dynamic"
+                    logger.info(
+                        "Pre-Ampere CUDA detected: using w8a8_dynamic quantization for stability"
+                    )
+        except Exception:
+            pass
 
     gpu_config = get_global_gpu_config()
 

@@ -9,6 +9,17 @@ from loguru import logger
 from acestep.gpu_config import get_effective_free_vram_gb, get_global_gpu_config, is_rocm_available
 
 
+def _cuda_supports_bfloat16() -> bool:
+    """Return whether the active CUDA device supports native bfloat16 kernels."""
+    try:
+        if not torch.cuda.is_available():
+            return False
+        major, _ = torch.cuda.get_device_capability()
+        return major >= 8
+    except Exception:
+        return False
+
+
 class MemoryUtilsMixin:
     """Mixin containing memory sizing and VRAM guard helpers.
 
@@ -157,11 +168,15 @@ class MemoryUtilsMixin:
     def _get_vae_dtype(self, device: Optional[str] = None) -> torch.dtype:
         """Get VAE dtype based on target device and GPU tier."""
         target_device = device or self.device
-        if target_device in ["cuda", "xpu"]:
-            if target_device == "cuda" and is_rocm_available():
+        if target_device == "cuda":
+            if is_rocm_available():
                 # On ROCm, defer to self.dtype which is already set to a safe
                 # value (float32 by default, or ACESTEP_ROCM_DTYPE override).
                 return getattr(self, "dtype", torch.float32)
+            if _cuda_supports_bfloat16():
+                return torch.bfloat16
+            return torch.float16
+        if target_device == "xpu":
             return torch.bfloat16
         if target_device == "mps":
             return torch.float16

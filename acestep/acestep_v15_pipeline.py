@@ -307,17 +307,24 @@ def main():
         default=_default_offload_dit,
         help=f"Offload DiT to CPU after diffusion (default: {_default_offload_dit}, auto-detected based on GPU tier)",
     )
-    _default_quantization = (
-        "int8_weight_only"
-        if (gpu_config.quantization_default and not _is_mac)
-        else None
-    )
+    _default_quantization = None
+    if gpu_config.quantization_default and not _is_mac:
+        _default_quantization = "int8_weight_only"
+        try:
+            import torch
+            if torch.cuda.is_available():
+                major, _ = torch.cuda.get_device_capability(0)
+                if major < 7:
+                    _default_quantization = "w8a8_dynamic"
+        except Exception:
+            pass
     parser.add_argument(
         "--quantization",
         type=parse_quantization_arg,
         default=_default_quantization,
         help=(
-            "DiT quantization method: int8_weight_only, int4_weight_only, or none "
+            "DiT quantization method: int8_weight_only, fp8_weight_only, "
+            "w8a8_dynamic, or none "
             f"(default: {_default_quantization}, auto-detected based on GPU tier)"
         ),
     )
@@ -470,9 +477,6 @@ def main():
             compile_model = os.environ.get(
                 "ACESTEP_COMPILE_MODEL", ""
             ).strip().lower() in {"1", "true", "yes", "y", "on"}
-            # compile_model must be True when quantization is used
-            if args.quantization and not compile_model:
-                compile_model = True
 
             init_status, enable_generate = dit_handler.initialize_service(
                 project_root=project_root,

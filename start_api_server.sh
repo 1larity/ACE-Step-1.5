@@ -189,6 +189,13 @@ _ensure_legacy_nvidia_torch_compat() {
         --index-url https://download.pytorch.org/whl/cu121 \
         torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121); then
         echo "[Compatibility] Legacy torch install complete."
+        # Keep a legacy-compatible torchao so INT8 quantization remains available
+        # on low-VRAM Pascal/Quadro GPUs.
+        if (cd "$SCRIPT_DIR" && uv pip install --python .venv/bin/python --force-reinstall torchao==0.11.0 >/dev/null 2>&1); then
+            echo "[Compatibility] Installed torchao==0.11.0 (legacy-compatible)."
+        else
+            echo "[Compatibility] Warning: failed to install torchao==0.11.0. Quantization may be unavailable."
+        fi
     else
         echo "[Compatibility] Warning: failed to install legacy torch automatically."
         echo "[Compatibility] Run manually:"
@@ -241,11 +248,11 @@ ACESTEP_ARGS="acestep-api --host $HOST --port $PORT"
 [[ -n "$DOWNLOAD_SOURCE" ]] && ACESTEP_ARGS="$ACESTEP_ARGS $DOWNLOAD_SOURCE"
 [[ -n "$LM_MODEL_PATH" ]] && ACESTEP_ARGS="$ACESTEP_ARGS $LM_MODEL_PATH"
 
-cd "$SCRIPT_DIR" && uv run $ACESTEP_ARGS || {
+cd "$SCRIPT_DIR" && uv run --no-sync $ACESTEP_ARGS || {
     echo
     echo "[Retry] Online dependency resolution failed, retrying in offline mode..."
     echo
-    uv run --offline $ACESTEP_ARGS || {
+    uv run --offline --no-sync $ACESTEP_ARGS || {
         echo
         echo "========================================"
         echo "[Error] Failed to start ACE-Step API Server"
