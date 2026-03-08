@@ -37,6 +37,7 @@ from transformers.models.qwen3.modeling_qwen3 import (
     apply_rotary_pos_emb,
     eager_attention_forward,
 )
+from tqdm import tqdm
 
 from vector_quantize_pytorch import ResidualFSQ
 
@@ -1801,6 +1802,8 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         audio_codes: Optional[torch.FloatTensor] = None,
         shift: float = 3.0,
         timesteps: Optional[torch.Tensor] = None,
+        use_progress_bar: bool = True,
+        disable_tqdm: bool = False,
         cover_noise_strength: float = 0.0,
         **kwargs,
     ):
@@ -1944,7 +1947,18 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         # Recalculate cover_steps based on actual num_steps
         cover_steps = int(num_steps * audio_cover_strength)
         _switched_to_non_cover = False
-        for step_idx in range(num_steps):
+        iterator = (
+            tqdm(
+                range(num_steps),
+                total=num_steps,
+                desc="DiT diffusion steps",
+                unit="step",
+                disable=disable_tqdm,
+            )
+            if use_progress_bar
+            else range(num_steps)
+        )
+        for step_idx in iterator:
             current_timestep = t_schedule[step_idx].item()
             t_curr_tensor = current_timestep * torch.ones((bsz,), device=device, dtype=dtype)
             

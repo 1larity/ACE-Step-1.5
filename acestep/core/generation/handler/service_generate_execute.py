@@ -75,6 +75,7 @@ class ServiceGenerateExecuteMixin:
         timesteps: Optional[List[float]],
     ) -> Dict[str, Any]:
         """Build kwargs passed to model generation backends."""
+        disable_tqdm = bool(getattr(self, "disable_tqdm", False))
         kwargs = {
             "text_hidden_states": payload["text_hidden_states"],
             "text_attention_mask": payload["text_attention_mask"],
@@ -99,6 +100,8 @@ class ServiceGenerateExecuteMixin:
             "cfg_interval_start": cfg_interval_start,
             "cfg_interval_end": cfg_interval_end,
             "shift": shift,
+            "use_progress_bar": not disable_tqdm,
+            "disable_tqdm": disable_tqdm,
         }
         if timesteps is not None:
             kwargs["timesteps"] = torch.tensor(timesteps, dtype=torch.float32, device=self.device)
