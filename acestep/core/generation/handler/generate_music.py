@@ -154,6 +154,23 @@ class GenerateMusicMixin:
             return False
         return major < 7 and total_mem_gb < 6.0
 
+    def _should_run_cuda_stability_canary(self) -> bool:
+        """Return whether a short CUDA canary run should probe latent stability.
+
+        The canary is only enabled when users explicitly opt into risky quantized
+        CUDA attempts; otherwise we either use normal CUDA flow or static CPU
+        preflight fallback for known-unstable profiles.
+        """
+        if not self._allow_risky_quantized_cuda_attempts():
+            return False
+        if os.environ.get("ACESTEP_DISABLE_CUDA_STABILITY_CANARY", "").lower() in ("1", "true", "yes"):
+            return False
+        if getattr(self, "device", None) != "cuda":
+            return False
+        if getattr(self, "quantization", None) is None:
+            return False
+        return torch.cuda.is_available()
+
     def _log_generation_progress_profile(
         self,
         *,
@@ -393,6 +410,104 @@ class GenerateMusicMixin:
                 + stage_timings.get("service_input_stage_sec", 0.0)
                 + stage_timings.get("preflight_stage_sec", 0.0)
             )
+            if self._should_run_cuda_stability_canary():
+                logger.info(
+                    "[generate_music] Running CUDA stability canary "
+                    "(1-step diffusion probe before full generation)."
+                )
+                if progress:
+                    progress(0.27, desc="Running CUDA stability preflight...")
+                canary_start = time.perf_counter()
+                canary_run = self._run_generate_music_service_with_progress(
+                    progress=None,
+                    actual_batch_size=actual_batch_size,
+                    audio_duration=audio_duration,
+                    inference_steps=1,
+                    timesteps=None,
+                    service_inputs=service_inputs,
+                    refer_audios=refer_audios,
+                    guidance_scale=guidance_scale,
+                    actual_seed_list=actual_seed_list,
+                    audio_cover_strength=audio_cover_strength,
+                    cover_noise_strength=cover_noise_strength,
+                    use_adg=use_adg,
+                    cfg_interval_start=cfg_interval_start,
+                    cfg_interval_end=cfg_interval_end,
+                    shift=shift,
+                    infer_method=infer_method,
+                )
+                stage_timings["canary_service_generate_sec"] = time.perf_counter() - canary_start
+                canary_outputs = canary_run["outputs"]
+                canary_infer_steps = canary_run["infer_steps_for_progress"]
+                try:
+                    self._prepare_generate_music_decode_state(
+                        outputs=canary_outputs,
+                        infer_steps_for_progress=canary_infer_steps,
+                        actual_batch_size=actual_batch_size,
+                        audio_duration=audio_duration,
+                        latent_shift=latent_shift,
+                        latent_rescale=latent_rescale,
+                    )
+                except RuntimeError as canary_exc:
+                    if self._is_non_finite_latents_error(canary_exc):
+                        logger.warning(
+                            "[generate_music] CUDA stability canary detected non-finite latents; "
+                            "switching to CPU stability preset before full generation."
+                        )
+                        canary_cpu_fallback = (
+                            _allow_cpu_device_fallback
+                            and hasattr(self, "switch_to_cpu_stability_preset")
+                        )
+                        if canary_cpu_fallback:
+                            switch_status, switch_ok = self.switch_to_cpu_stability_preset()
+                            if switch_ok:
+                                logger.info("[generate_music] {}", switch_status)
+                                return self.generate_music(
+                                    captions=captions,
+                                    lyrics=lyrics,
+                                    bpm=bpm,
+                                    key_scale=key_scale,
+                                    time_signature=time_signature,
+                                    vocal_language=vocal_language,
+                                    inference_steps=inference_steps,
+                                    guidance_scale=guidance_scale,
+                                    use_random_seed=use_random_seed,
+                                    seed=seed,
+                                    reference_audio=reference_audio,
+                                    audio_duration=audio_duration,
+                                    batch_size=batch_size,
+                                    src_audio=src_audio,
+                                    audio_code_string=audio_code_string,
+                                    repainting_start=repainting_start,
+                                    repainting_end=repainting_end,
+                                    instruction=instruction,
+                                    audio_cover_strength=audio_cover_strength,
+                                    cover_noise_strength=cover_noise_strength,
+                                    task_type=task_type,
+                                    use_adg=use_adg,
+                                    cfg_interval_start=cfg_interval_start,
+                                    cfg_interval_end=cfg_interval_end,
+                                    shift=shift,
+                                    infer_method=infer_method,
+                                    use_tiled_decode=use_tiled_decode,
+                                    timesteps=timesteps,
+                                    latent_shift=latent_shift,
+                                    latent_rescale=latent_rescale,
+                                    progress=progress,
+                                    _allow_dequant_fallback=False,
+                                    _allow_quantized_mode_fallback=False,
+                                    _allow_cpu_device_fallback=False,
+                                )
+                            logger.warning(
+                                "[generate_music] Failed to switch to CPU stability preset after canary: {}",
+                                switch_status,
+                            )
+                    else:
+                        logger.warning(
+                            "[generate_music] CUDA stability canary failed with non-latent error "
+                            "({}); continuing with normal generation.",
+                            canary_exc,
+                        )
             if progress:
                 progress(0.30, desc="Starting diffusion...")
 

@@ -415,6 +415,34 @@ class GenerateMusicMixinTests(unittest.TestCase):
         self.assertEqual(host.cpu_switch_calls, 1)
         self.assertEqual(len(host.service_run_calls), 1)
 
+    def test_generate_music_cuda_canary_switches_to_cpu_before_full_run(self):
+        """It uses canary probe and switches to CPU before full diffusion when canary is non-finite."""
+        host = _Host()
+        host.quantization = "int8_weight_only"
+        host.device = "cuda"
+        decode_calls = {"count": 0}
+
+        def _decode_state_side_effect(**_kwargs):
+            """Fail canary decode once, then allow decode after CPU switch."""
+            decode_calls["count"] += 1
+            if decode_calls["count"] == 1:
+                raise RuntimeError("Generation produced too many NaN or Inf latents (100.00%).")
+            return torch.ones(1, 4, 3), {"total_time_cost": 1.0}
+
+        host._prepare_generate_music_decode_state = _decode_state_side_effect
+        with patch.dict(os.environ, {"ACESTEP_ALLOW_RISKY_QUANTIZED_CUDA": "1"}, clear=False):
+            out = host.generate_music(
+                captions="cap",
+                lyrics="lyr",
+                inference_steps=8,
+                guidance_scale=7.0,
+                use_adg=True,
+            )
+
+        self.assertEqual(out, host._final_payload)
+        self.assertEqual(host.cpu_switch_calls, 1)
+        self.assertEqual(len(host.service_run_calls), 2)
+
 
 class NonQuantizedFallbackGateTests(unittest.TestCase):
     """Verify non-quantized fallback gating behavior on CUDA memory detection."""
@@ -451,6 +479,25 @@ class NonQuantizedFallbackGateTests(unittest.TestCase):
 
         with patch.dict(os.environ, {"ACESTEP_ALLOW_RISKY_QUANTIZED_CUDA": "1"}, clear=False):
             self.assertFalse(host._should_preflight_cpu_stability_mode())
+
+    @patch.object(_GM_MOD, "torch")
+    def test_cuda_stability_canary_disabled_without_risky_opt_in(self, mock_torch):
+        """It keeps canary disabled unless risky CUDA mode is explicitly enabled."""
+        mock_torch.cuda.is_available.return_value = True
+        host = _Host()
+        host.device = "cuda"
+        host.quantization = "int8_weight_only"
+        self.assertFalse(host._should_run_cuda_stability_canary())
+
+    @patch.object(_GM_MOD, "torch")
+    def test_cuda_stability_canary_enabled_with_risky_opt_in(self, mock_torch):
+        """It enables canary on quantized CUDA when risky mode is explicitly enabled."""
+        mock_torch.cuda.is_available.return_value = True
+        host = _Host()
+        host.device = "cuda"
+        host.quantization = "int8_weight_only"
+        with patch.dict(os.environ, {"ACESTEP_ALLOW_RISKY_QUANTIZED_CUDA": "1"}, clear=False):
+            self.assertTrue(host._should_run_cuda_stability_canary())
 
 
 class VramPreflightCheckTests(unittest.TestCase):
