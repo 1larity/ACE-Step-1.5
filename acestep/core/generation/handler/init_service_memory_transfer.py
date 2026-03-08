@@ -75,10 +75,18 @@ class InitServiceMemoryTransferMixin:
             if dtype is not None:
                 model.to(dtype)
         except NotImplementedError:
-            logger.info(
-                "[_recursive_to_device] model.to() raised NotImplementedError "
-                "(AffineQuantizedTensor on older torch). Moving parameters individually."
-            )
+            if not getattr(self, "_logged_quantized_to_fallback", False):
+                logger.info(
+                    "[_recursive_to_device] model.to() raised NotImplementedError "
+                    "(AffineQuantizedTensor on older torch). "
+                    "Moving parameters individually (future repeats logged at DEBUG)."
+                )
+                self._logged_quantized_to_fallback = True
+            else:
+                logger.debug(
+                    "[_recursive_to_device] model.to() NotImplementedError fallback "
+                    "triggered again; moving parameters individually."
+                )
             for module in model.modules():
                 for param_name, param in module._parameters.items():
                     if param is None:

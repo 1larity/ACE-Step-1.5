@@ -178,29 +178,60 @@ class GenerateMusicMixin:
         time_costs: Optional[Dict[str, Any]],
     ) -> None:
         """Log optional stage timings used to calibrate progress tracking."""
-        total = stage_timings.get("total_orchestration_sec", 0.0)
+        def _to_float(value: Any) -> float:
+            """Convert numeric-like values to float while failing closed to 0.0."""
+            try:
+                return float(value or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        total = _to_float(stage_timings.get("total_orchestration_sec", 0.0))
         if total <= 0:
             return
-        setup = stage_timings.get("setup_before_service_sec", 0.0)
-        service = stage_timings.get("service_generate_sec", 0.0)
-        decode = stage_timings.get("decode_total_sec", 0.0)
+        setup = _to_float(stage_timings.get("setup_before_service_sec", 0.0))
+        if setup <= 0:
+            setup = (
+                _to_float(stage_timings.get("runtime_prep_sec", 0.0))
+                + _to_float(stage_timings.get("reference_audio_stage_sec", 0.0))
+                + _to_float(stage_timings.get("service_input_stage_sec", 0.0))
+                + _to_float(stage_timings.get("preflight_stage_sec", 0.0))
+                + _to_float(stage_timings.get("canary_service_generate_sec", 0.0))
+            )
+        service = _to_float(stage_timings.get("service_generate_sec", 0.0))
+        decode = _to_float(stage_timings.get("decode_total_sec", 0.0))
         diffusion = 0.0
         if isinstance(time_costs, dict):
-            diffusion = float(time_costs.get("diffusion_time_cost", 0.0) or 0.0)
+            diffusion = _to_float(time_costs.get("diffusion_time_cost", 0.0))
+            if service <= 0:
+                total_cost = _to_float(time_costs.get("total_time_cost", 0.0))
+                decode_cost = _to_float(time_costs.get("vae_decode_time_cost", 0.0))
+                service = max(0.0, total_cost - decode_cost)
+            if decode <= 0:
+                decode = _to_float(time_costs.get("vae_decode_time_cost", 0.0))
+
+        partition_total = setup + service + decode
+        denom = max(total, partition_total, 1e-9)
+        service_denom = max(service, 1e-9)
+        setup_pct = 100.0 * setup / denom
+        service_pct = 100.0 * service / denom
+        decode_pct = 100.0 * decode / denom
+        diffusion_service_pct = min(100.0, 100.0 * diffusion / service_denom)
+        diffusion_total_pct = min(100.0, 100.0 * diffusion / denom)
 
         logger.info(
             "[progress_profile] total={:.2f}s | setup={:.2f}s ({:.1f}%) | "
-            "service={:.2f}s ({:.1f}%) | diffusion={:.2f}s ({:.1f}%) | "
-            "decode={:.2f}s ({:.1f}%)",
+            "service={:.2f}s ({:.1f}%) | decode={:.2f}s ({:.1f}%) | "
+            "diffusion={:.2f}s ({:.1f}% of service, {:.1f}% of total)",
             total,
             setup,
-            100.0 * setup / total,
+            setup_pct,
             service,
-            100.0 * service / total,
-            diffusion,
-            100.0 * diffusion / total,
+            service_pct,
             decode,
-            100.0 * decode / total,
+            decode_pct,
+            diffusion,
+            diffusion_service_pct,
+            diffusion_total_pct,
         )
 
     def generate_music(

@@ -632,6 +632,27 @@ class InitServiceMixinTests(unittest.TestCase):
                     host._recursive_to_device(model, "cpu")
         self.assertGreaterEqual(move_quant.call_count, 1)
 
+    def test_recursive_to_device_logs_notimplemented_fallback_once(self):
+        """It emits INFO once for NotImplemented fallback and DEBUG on repeated triggers."""
+        host = _Host(project_root="K:/fake_root", device="cpu")
+        model = torch.nn.Linear(2, 2)
+
+        def _raise_not_implemented(*_args, **_kwargs):
+            """Simulate older torch behavior for quantized tensor moves."""
+            raise NotImplementedError("no shallow copy")
+
+        model.to = _raise_not_implemented  # type: ignore[assignment]
+        with patch.object(host, "_move_module_recursive", return_value=None):
+            with patch(
+                "acestep.core.generation.handler.init_service_memory_transfer.logger.info"
+            ) as info_log, patch(
+                "acestep.core.generation.handler.init_service_memory_transfer.logger.debug"
+            ) as debug_log:
+                host._recursive_to_device(model, "cpu")
+                host._recursive_to_device(model, "cpu")
+        self.assertEqual(info_log.call_count, 1)
+        self.assertGreaterEqual(debug_log.call_count, 1)
+
     def test_empty_cache_routes_to_cuda(self):
         """It routes cache clearing to CUDA when the host device is CUDA."""
         host = _Host(project_root="K:/fake_root", device="cuda")

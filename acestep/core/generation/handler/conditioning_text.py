@@ -1,5 +1,6 @@
 """Text-token and hint preparation helpers for batch conditioning."""
 
+import os
 from typing import List, Optional, Tuple
 
 import torch
@@ -16,6 +17,11 @@ class ConditioningTextMixin:
     - Methods: ``_decode_audio_codes_to_latents``, ``_extract_caption_and_language``,
       ``_format_instruction``, ``_format_lyrics``, ``_pad_sequences``.
     """
+
+    @staticmethod
+    def _should_log_inference_prompt_debug() -> bool:
+        """Return whether full prompt/lyric debug dumps should be logged."""
+        return os.environ.get("ACESTEP_LOG_PROMPT_DEBUG", "").lower() in ("1", "true", "yes")
 
     def _prepare_precomputed_lm_hints(
         self,
@@ -116,13 +122,22 @@ class ConditioningTextMixin:
             text_prompt = SFT_GEN_PROMPT.format(instruction, actual_caption, parsed_metas[i])
 
             if i == 0:
-                logger.info(f"\n{'='*70}")
-                logger.info("🔍 [DEBUG] DiT TEXT ENCODER INPUT (Inference)")
-                logger.info(f"{'='*70}")
-                logger.info(f"text_prompt:\n{text_prompt}")
-                logger.info(f"{'='*70}")
-                logger.info(f"lyrics_text:\n{self._format_lyrics(lyrics[i], actual_language)}")
-                logger.info(f"{'='*70}\n")
+                if self._should_log_inference_prompt_debug():
+                    logger.info(f"\n{'='*70}")
+                    logger.info("🔍 [DEBUG] DiT TEXT ENCODER INPUT (Inference)")
+                    logger.info(f"{'='*70}")
+                    logger.info(f"text_prompt:\n{text_prompt}")
+                    logger.info(f"{'='*70}")
+                    logger.info(f"lyrics_text:\n{self._format_lyrics(lyrics[i], actual_language)}")
+                    logger.info(f"{'='*70}\n")
+                else:
+                    logger.debug(
+                        "[generate_music] Conditioning preview: caption_chars={}, lyric_chars={}, "
+                        "language={}",
+                        len(actual_caption),
+                        len(lyrics[i]),
+                        actual_language,
+                    )
 
             text_inputs_dict = self.text_tokenizer(
                 text_prompt,

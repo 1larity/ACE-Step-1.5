@@ -500,6 +500,56 @@ class NonQuantizedFallbackGateTests(unittest.TestCase):
             self.assertTrue(host._should_run_cuda_stability_canary())
 
 
+class ProgressProfileLoggingTests(unittest.TestCase):
+    """Verify progress-profile timing math for stable, intuitive percentages."""
+
+    _GM_MOD = GENERATE_MUSIC_MODULE
+
+    def test_progress_profile_uses_stage_fallbacks_and_partitioned_percentages(self):
+        """It derives setup/service/decode from fallback keys and reports consistent percentages."""
+        host = _Host()
+        stage_timings = {
+            "total_orchestration_sec": 5.0,
+            "runtime_prep_sec": 0.2,
+            "reference_audio_stage_sec": 0.3,
+            "service_input_stage_sec": 0.4,
+            "preflight_stage_sec": 0.1,
+            "canary_service_generate_sec": 0.5,
+        }
+        time_costs = {
+            "total_time_cost": 3.0,
+            "vae_decode_time_cost": 1.0,
+            "diffusion_time_cost": 1.5,
+        }
+
+        with patch.object(self._GM_MOD.logger, "info") as info_mock:
+            host._log_generation_progress_profile(stage_timings=stage_timings, time_costs=time_costs)
+
+        self.assertTrue(info_mock.called)
+        call_args = info_mock.call_args[0]
+        self.assertIn("diffusion", call_args[0])
+        self.assertAlmostEqual(call_args[1], 5.0, places=6)
+        self.assertAlmostEqual(call_args[2], 1.5, places=6)
+        self.assertAlmostEqual(call_args[3], 30.0, places=6)
+        self.assertAlmostEqual(call_args[4], 2.0, places=6)
+        self.assertAlmostEqual(call_args[5], 40.0, places=6)
+        self.assertAlmostEqual(call_args[6], 1.0, places=6)
+        self.assertAlmostEqual(call_args[7], 20.0, places=6)
+        self.assertAlmostEqual(call_args[8], 1.5, places=6)
+        self.assertAlmostEqual(call_args[9], 75.0, places=6)
+        self.assertAlmostEqual(call_args[10], 30.0, places=6)
+
+    def test_progress_profile_skips_log_when_total_is_not_positive(self):
+        """It does not emit profile logs when total orchestration time is missing or zero."""
+        host = _Host()
+        with patch.object(self._GM_MOD.logger, "info") as info_mock:
+            host._log_generation_progress_profile(
+                stage_timings={"total_orchestration_sec": 0.0},
+                time_costs={"diffusion_time_cost": 1.0},
+            )
+        info_mock.assert_not_called()
+
+
 class VramPreflightCheckTests(unittest.TestCase):
     """Verify ``_vram_preflight_check`` respects CPU offload mode."""
 
