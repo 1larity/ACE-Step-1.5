@@ -76,6 +76,7 @@ class ServiceGenerateExecuteMixin:
     ) -> Dict[str, Any]:
         """Build kwargs passed to model generation backends."""
         disable_tqdm = bool(getattr(self, "disable_tqdm", False))
+        runtime_progress = getattr(self, "_runtime_progress_callback", None)
         kwargs = {
             "text_hidden_states": payload["text_hidden_states"],
             "text_attention_mask": payload["text_attention_mask"],
@@ -103,6 +104,15 @@ class ServiceGenerateExecuteMixin:
             "use_progress_bar": not disable_tqdm,
             "disable_tqdm": disable_tqdm,
         }
+        if callable(runtime_progress):
+            kwargs["progress_callback"] = (
+                lambda current, total, desc="DiT diffusion steps": runtime_progress(
+                    stage="diffusion",
+                    current=current,
+                    total=total,
+                    desc=desc,
+                )
+            )
         if timesteps is not None:
             kwargs["timesteps"] = torch.tensor(timesteps, dtype=torch.float32, device=self.device)
         return kwargs

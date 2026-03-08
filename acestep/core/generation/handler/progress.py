@@ -4,7 +4,7 @@ import json
 import os
 import threading
 import time
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from loguru import logger
 
@@ -17,6 +17,30 @@ _FALLBACK_PER_STEP_SEC = 2.5
 
 
 class ProgressMixin:
+    def _set_runtime_progress_callback(
+        self,
+        callback: Optional[Callable[..., Any]],
+    ) -> None:
+        """Set per-generation runtime progress callback used by inner loops."""
+        self._runtime_progress_callback = callback
+
+    def _emit_runtime_progress(
+        self,
+        stage: str,
+        current: int,
+        total: int,
+        desc: str,
+    ) -> None:
+        """Emit a runtime progress event to the active callback when available."""
+        callback = getattr(self, "_runtime_progress_callback", None)
+        if not callable(callback):
+            return
+        try:
+            callback(stage=stage, current=current, total=total, desc=desc)
+        except Exception:
+            # Progress reporting is best-effort; generation should continue.
+            pass
+
     def _get_project_root(self) -> str:
         """Get project root directory path.
 

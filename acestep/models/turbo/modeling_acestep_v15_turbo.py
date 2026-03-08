@@ -1947,11 +1947,13 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         # Recalculate cover_steps based on actual num_steps
         cover_steps = int(num_steps * audio_cover_strength)
         _switched_to_non_cover = False
+        progress_callback = kwargs.get("progress_callback")
+        progress_desc = kwargs.get("progress_desc", "DiT diffusion steps")
         iterator = (
             tqdm(
                 range(num_steps),
                 total=num_steps,
-                desc="DiT diffusion steps",
+                desc=progress_desc,
                 unit="step",
                 disable=disable_tqdm,
             )
@@ -1959,6 +1961,8 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             else range(num_steps)
         )
         for step_idx in iterator:
+            if callable(progress_callback):
+                progress_callback(step_idx + 1, num_steps, progress_desc)
             current_timestep = t_schedule[step_idx].item()
             t_curr_tensor = current_timestep * torch.ones((bsz,), device=device, dtype=dtype)
             

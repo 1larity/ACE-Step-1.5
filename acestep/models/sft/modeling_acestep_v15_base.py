@@ -1873,8 +1873,17 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                 t = shift * t / (1 + (shift - 1) * t)
         
         cover_steps = int(infer_steps * audio_cover_strength)
+        disable_tqdm = bool(kwargs.get("disable_tqdm", not use_progress_bar))
+        progress_callback = kwargs.get("progress_callback")
+        progress_desc = kwargs.get("progress_desc", "DiT diffusion steps")
         if use_progress_bar:
-            iterator = tqdm(zip(t[:-1], t[1:]), total=infer_steps)
+            iterator = tqdm(
+                zip(t[:-1], t[1:]),
+                total=infer_steps,
+                desc=progress_desc,
+                unit="step",
+                disable=disable_tqdm,
+            )
         else:
             iterator = zip(t[:-1], t[1:])
 
@@ -1898,7 +1907,13 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             infer_steps = len(t) - 1
             cover_steps = int(infer_steps * audio_cover_strength)
             if use_progress_bar:
-                iterator = tqdm(zip(t[:-1], t[1:]), total=infer_steps)
+                iterator = tqdm(
+                    zip(t[:-1], t[1:]),
+                    total=infer_steps,
+                    desc=progress_desc,
+                    unit="step",
+                    disable=disable_tqdm,
+                )
             else:
                 iterator = zip(t[:-1], t[1:])
             logger.info(
@@ -1921,6 +1936,8 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         _switched_to_non_cover = False
         with torch.no_grad():
             for step_idx, (t_curr, t_prev) in enumerate(iterator):
+                if callable(progress_callback):
+                    progress_callback(step_idx + 1, infer_steps, progress_desc)
                 if step_idx >= cover_steps and not _switched_to_non_cover:
                     _switched_to_non_cover = True
                     if do_cfg_guidance:

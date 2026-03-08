@@ -42,7 +42,35 @@ class GenerateMusicExecuteMixin:
         """
         infer_steps_for_progress = len(timesteps) if timesteps else inference_steps
         progress_desc = f"Generating music (batch size: {actual_batch_size})..."
-        progress(0.52, desc=progress_desc)
+        max_progress = 0.0
+        max_progress_lock = threading.Lock()
+
+        def _report_progress(value: float, desc: Optional[str] = None) -> None:
+            """Emit monotonic progress updates to avoid bar regressions."""
+            nonlocal max_progress
+            if progress is None:
+                return
+            with max_progress_lock:
+                next_value = max(max_progress, float(value))
+                max_progress = next_value
+            progress(next_value, desc=desc or progress_desc)
+
+        _report_progress(0.52, desc=progress_desc)
+
+        stage_ranges = {
+            "encoding": (0.52, 0.61),
+            "diffusion": (0.61, 0.79),
+        }
+        runtime_progress_setter = getattr(self, "_set_runtime_progress_callback", None)
+
+        def _service_progress_callback(stage: str, current: int, total: int, desc: str) -> None:
+            """Map service stage progress into the main Gradio progress range."""
+            if stage not in stage_ranges or total <= 0:
+                return
+            start, end = stage_ranges[stage]
+            ratio = min(1.0, max(0.0, float(current) / float(total)))
+            _report_progress(start + (end - start) * ratio, desc=desc)
+
         stop_event = None
         progress_thread = None
 
@@ -86,8 +114,11 @@ class GenerateMusicExecuteMixin:
                 _error["exc"] = exc
 
         try:
+            if callable(runtime_progress_setter):
+                runtime_progress_setter(_service_progress_callback)
+
             stop_event, progress_thread = self._start_diffusion_progress_estimator(
-                progress=progress,
+                progress=_report_progress if progress is not None else None,
                 start=0.52,
                 end=0.79,
                 infer_steps=infer_steps_for_progress,
@@ -120,6 +151,8 @@ class GenerateMusicExecuteMixin:
                 raise _error["exc"]
 
         finally:
+            if callable(runtime_progress_setter):
+                runtime_progress_setter(None)
             if stop_event is not None:
                 stop_event.set()
             if progress_thread is not None:

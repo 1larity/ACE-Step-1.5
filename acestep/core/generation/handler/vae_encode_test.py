@@ -54,6 +54,7 @@ class _Host(VaeEncodeMixin, VaeEncodeChunksMixin):
         self.device = "cpu"
         self.vae = _Vae()
         self.disable_tqdm = True
+        self._runtime_progress_callback = None
         self.recorded = {}
 
     def _get_effective_mps_memory_gb(self):
@@ -64,6 +65,12 @@ class _Host(VaeEncodeMixin, VaeEncodeChunksMixin):
         """Return MLX sentinel result for MLX-path tests."""
         _ = audio
         return torch.full((1, 4, 6), 3.0)
+
+    def _emit_runtime_progress(self, stage, current, total, desc):
+        """Emit runtime progress events to the active callback when present."""
+        callback = self._runtime_progress_callback
+        if callable(callback):
+            callback(stage=stage, current=current, total=total, desc=desc)
 
 
 class VaeEncodeMixinTests(unittest.TestCase):
@@ -143,6 +150,23 @@ class VaeEncodeMixinTests(unittest.TestCase):
         num_steps = 4
         out = host._tiled_encode_offload_cpu(audio, 1, 40, stride, overlap, num_steps, chunk_size)
         self.assertEqual(out.device.type, "cpu")
+
+    def test_tiled_encode_gpu_emits_runtime_progress_events(self):
+        """GPU chunk loop should emit encoding progress events when callback is active."""
+        host = _Host()
+        events = []
+        host._runtime_progress_callback = lambda **event: events.append(event)
+        audio = torch.zeros(1, 2, 40)
+        chunk_size = 16
+        overlap = 2
+        stride = chunk_size - 2 * overlap
+        num_steps = 4
+
+        host._tiled_encode_gpu(audio, 1, 40, stride, overlap, num_steps, chunk_size)
+        self.assertEqual(len(events), num_steps)
+        self.assertEqual(events[-1]["stage"], "encoding")
+        self.assertEqual(events[-1]["current"], num_steps)
+        self.assertEqual(events[-1]["total"], num_steps)
 
 
 if __name__ == "__main__":
