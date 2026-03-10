@@ -6,6 +6,8 @@ import importlib.util
 import shutil
 from typing import Any, Callable
 
+from acestep.text_tasks.external_lm_providers import get_external_provider_profile
+
 
 def as_markdown_status(text: str) -> str:
     """Render multiline status text in a readable monospaced block."""
@@ -30,6 +32,9 @@ def build_runtime_summary_line(
     secret_error_cls: type[Exception],
 ) -> str:
     """Return concise runtime readiness summary line after save."""
+    profile = get_external_provider_profile(provider)
+    if not profile.api_key_required:
+        return "External runtime status: ready"
     try:
         key = resolve_external_api_key_for_runtime(provider)
     except secret_error_cls:
