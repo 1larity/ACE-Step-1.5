@@ -1,4 +1,4 @@
-"""Encrypted local secret storage for external text-task API credentials.
+﻿"""Encrypted local secret storage for external text-task API credentials.
 
 This module stores secrets under user-local persistent data directories using
 OpenSSL symmetric encryption, while using a Windows-safe passphrase handoff.
@@ -12,8 +12,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-
-_OPENSSL_PASSPHRASE_ENV = "ACESTEP_OPENSSL_PASSPHRASE"
+from .secure_secret_store_exec import OPENSSL_PASSPHRASE_ENV, sanitize_error
+from .secure_secret_store_paths import default_secret_path, legacy_secret_path
 
 
 class SecretStoreError(RuntimeError):
@@ -42,18 +42,12 @@ class EncryptedSecretStore:
     @staticmethod
     def default_path(filename: str = "external_ai_api_key.enc") -> Path:
         """Return default encrypted secret path in persistent user data storage."""
-        xdg_data_home = os.getenv("XDG_DATA_HOME")
-        base = (
-            Path(xdg_data_home).expanduser()
-            if xdg_data_home
-            else Path.home() / ".local" / "share"
-        )
-        return base / "acestep" / "secrets" / filename
+        return default_secret_path(filename=filename)
 
     @staticmethod
     def legacy_default_path(filename: str = "external_ai_api_key.enc") -> Path:
         """Return historical encrypted secret path under ``~/.local/share``."""
-        return Path.home() / ".local" / "share" / "acestep" / "secrets" / filename
+        return legacy_secret_path(filename=filename)
 
     @staticmethod
     def resolve_existing_default_path(filename: str = "external_ai_api_key.enc") -> Path:
@@ -71,15 +65,7 @@ class EncryptedSecretStore:
         return self.secret_path.exists()
 
     def save(self, *, secret: str, passphrase: str) -> None:
-        """Encrypt and store a secret value at ``secret_path``.
-
-        Args:
-            secret: Plaintext secret value.
-            passphrase: User-supplied encryption passphrase.
-
-        Raises:
-            SecretStoreError: If encryption or file write fails.
-        """
+        """Encrypt and store a secret value at ``secret_path``."""
         if not secret:
             raise SecretStoreError("Secret cannot be empty.")
         if not passphrase:
@@ -87,57 +73,30 @@ class EncryptedSecretStore:
 
         self.secret_path.parent.mkdir(parents=True, exist_ok=True)
         self.secret_path.parent.chmod(0o700)
-
         result = self._run_openssl(
-            args=[
-                "enc",
-                "-aes-256-cbc",
-                "-pbkdf2",
-                "-salt",
-                "-out",
-                str(self.secret_path),
-            ],
+            args=["enc", "-aes-256-cbc", "-pbkdf2", "-salt", "-out", str(self.secret_path)],
             passphrase=passphrase,
             stdin_bytes=secret.encode("utf-8"),
         )
         if result.returncode != 0:
             stderr = result.stderr.decode("utf-8", errors="ignore")
-            raise SecretStoreError(self._sanitize_error(stderr))
-
+            raise SecretStoreError(sanitize_error(stderr))
         self.secret_path.chmod(0o600)
 
     def load(self, *, passphrase: str) -> str:
-        """Decrypt and return secret value from ``secret_path``.
-
-        Args:
-            passphrase: User-supplied decryption passphrase.
-
-        Returns:
-            str: Decrypted secret value.
-
-        Raises:
-            SecretStoreError: If secret file is missing or decryption fails.
-        """
+        """Decrypt and return secret value from ``secret_path``."""
         if not self.secret_path.exists():
             raise SecretStoreError(f"Secret not found at: {self.secret_path}")
         if not passphrase:
             raise SecretStoreError("Passphrase cannot be empty.")
 
         result = self._run_openssl(
-            args=[
-                "enc",
-                "-d",
-                "-aes-256-cbc",
-                "-pbkdf2",
-                "-in",
-                str(self.secret_path),
-            ],
+            args=["enc", "-d", "-aes-256-cbc", "-pbkdf2", "-in", str(self.secret_path)],
             passphrase=passphrase,
             stdin_bytes=None,
         )
         if result.returncode != 0:
             raise SecretStoreError("Failed to decrypt secret. Check passphrase.")
-
         try:
             return result.stdout.decode("utf-8")
         except UnicodeDecodeError as exc:
@@ -177,8 +136,8 @@ class EncryptedSecretStore:
     ) -> subprocess.CompletedProcess[bytes]:
         """Execute OpenSSL on Windows without unsupported ``pass_fds`` usage."""
         env = os.environ.copy()
-        env[_OPENSSL_PASSPHRASE_ENV] = passphrase
-        cmd = [self.openssl_path, *args, "-pass", f"env:{_OPENSSL_PASSPHRASE_ENV}"]
+        env[OPENSSL_PASSPHRASE_ENV] = passphrase
+        cmd = [self.openssl_path, *args, "-pass", f"env:{OPENSSL_PASSPHRASE_ENV}"]
         return subprocess.run(
             cmd,
             input=stdin_bytes,
@@ -215,11 +174,3 @@ class EncryptedSecretStore:
         finally:
             os.close(pass_r)
         return result
-
-    @staticmethod
-    def _sanitize_error(stderr: str) -> str:
-        """Return a concise non-sensitive error message."""
-        if not stderr:
-            return "OpenSSL operation failed."
-        first_line = stderr.strip().splitlines()[0]
-        return first_line[:200]

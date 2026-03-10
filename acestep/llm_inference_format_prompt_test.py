@@ -18,6 +18,7 @@ class _EchoTokenizer:
     """Tokenizer stub that returns the user-content payload for prompt assertions."""
 
     def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+        """Render the provided chat messages into the canned prompt text used by the test."""
         _ = tokenize
         _ = add_generation_prompt
         return messages[1]["content"]

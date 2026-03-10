@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""ACE-Step v1.5 SFT model components and conditioned generation modules."""
+
 import math
 import time
 from typing import Callable, List, Optional, Union
@@ -246,6 +248,7 @@ class TimestepEmbedding(nn.Module):
         return embedding
 
     def forward(self, t):
+        """Project timestep features into the configured embedding space."""
         t_freq = self.timestep_embedding(t, self.in_channels)
         temb = self.linear_1(t_freq.to(t.dtype))
         temb = self.act1(temb)
@@ -297,6 +300,7 @@ class AceStepAttention(nn.Module):
         output_attentions: Optional[bool] = False,
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[tuple[torch.Tensor]]]:
+        """Run attention over the hidden states with the configured masks and cache."""
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
 
@@ -411,6 +415,7 @@ class AceStepEncoderLayer(GradientCheckpointingLayer):
         Optional[tuple[torch.FloatTensor, torch.FloatTensor]],
     ]:
         # Self-attention with residual connection
+        """Apply one encoder layer update to the hidden states."""
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
         hidden_states, self_attn_weights = self.self_attn(
@@ -490,6 +495,7 @@ class AceStepDiTLayer(GradientCheckpointingLayer):
 
         # Extract scale-shift parameters for adaptive layer norm from timestep embeddings
         # 6 values: (shift_msa, scale_msa, gate_msa, c_shift_msa, c_scale_msa, c_gate_msa)
+        """Apply one DiT layer update to the hidden states."""
         shift_msa, scale_msa, gate_msa, c_shift_msa, c_scale_msa, c_gate_msa = (
             self.scale_shift_table + temb
         ).chunk(6, dim=1)
@@ -541,6 +547,7 @@ class AceStepDiTLayer(GradientCheckpointingLayer):
 
 @auto_docstring
 class AceStepPreTrainedModel(PreTrainedModel):
+    """Base pretrained model wrapper for ACE-Step SFT checkpoints."""
     config_class = AceStepConfig
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
@@ -610,6 +617,7 @@ class AceStepLyricEncoder(AceStepPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         **flash_attn_kwargs: Unpack[FlashAttentionKwargs],
     ) -> BaseModelOutput:
+        """Encode lyric token features into conditioning representations."""
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
@@ -762,6 +770,7 @@ class AttentionPooler(AceStepPreTrainedModel):
         attention_mask: Optional[torch.Tensor] = None,
         **flash_attn_kwargs: Unpack[FlashAttentionKwargs],
     ) -> BaseModelOutput:
+        """Pool sequence features into a fixed-width summary representation."""
         B, T, P, D = x.shape
         x = self.embed_tokens(x)
         special_tokens = self.special_token.expand(B, T, 1, -1)
@@ -891,6 +900,7 @@ class AudioTokenDetokenizer(AceStepPreTrainedModel):
         attention_mask: Optional[torch.Tensor] = None,
         **flash_attn_kwargs: Unpack[FlashAttentionKwargs],
     ) -> BaseModelOutput:
+        """Project discrete audio tokens back into continuous embeddings."""
         B, T, D = x.shape
         x = self.embed_tokens(x)
         # Expand and add special tokens: N x T x D -> N x T x P x D
@@ -1080,6 +1090,7 @@ class AceStepTimbreEncoder(AceStepPreTrainedModel):
         attention_mask: Optional[torch.Tensor] = None,
         **flash_attn_kwargs: Unpack[FlashAttentionKwargs],
     ) -> BaseModelOutput:
+        """Encode timbre conditioning inputs into hidden representations."""
         inputs_embeds = refer_audio_acoustic_hidden_states_packed
         # Project embeddings: N x T x timbre_hidden_dim -> N x T x hidden_size
         inputs_embeds = self.embed_tokens(inputs_embeds)
@@ -1210,6 +1221,7 @@ class AceStepAudioTokenizer(AceStepPreTrainedModel):
     ) -> BaseModelOutput:
         
         # Project acoustic features to hidden size
+        """Encode audio inputs into tokenizer features."""
         hidden_states = self.audio_acoustic_proj(hidden_states)
         # Pool sequences: N x T//pool_window_size x pool_window_size x d -> N x T//pool_window_size x d
         hidden_states = self.attention_pooler(hidden_states)
@@ -1218,6 +1230,7 @@ class AceStepAudioTokenizer(AceStepPreTrainedModel):
         return quantized, indices
 
     def tokenize(self, x):
+        """Convert audio inputs into discrete latent token ids."""
         x = rearrange(x, 'n (t_patch p) d -> n t_patch p d', p=self.pool_window_size)
         quantized, indices = self.forward(x)
         return quantized, indices
@@ -1234,6 +1247,7 @@ class Lambda(nn.Module):
         self.func = func
     
     def forward(self, x):
+        """Apply the wrapped callable to the provided input tensor."""
         return self.func(x)
 
 
@@ -1320,6 +1334,7 @@ class AceStepDiTModel(AceStepPreTrainedModel):
         **flash_attn_kwargs: Unpack[FlashAttentionKwargs],
     ):
 
+        """Run the DiT backbone for one conditioned model step."""
         use_cache = use_cache if use_cache is not None else self.config.use_cache
 
         # Disable cache during training or when gradient checkpointing is enabled
@@ -1537,6 +1552,7 @@ class AceStepConditionEncoder(AceStepPreTrainedModel):
         refer_audio_order_mask: Optional[torch.LongTensor] = None,
     ):
         # Project and encode text
+        """Build merged conditioning states for ACE-Step generation."""
         text_hidden_states = self.text_projector(text_hidden_states)
         # Encode lyrics
         lyric_encoder_outputs = self.lyric_encoder(
@@ -1578,6 +1594,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         self.post_init()
 
     def tokenize(self, x, silence_latent, attention_mask):
+        """Tokenize audio inputs and masks for conditioned generation."""
         if x.shape[1] % self.config.pool_window_size != 0:
             pad_len = self.config.pool_window_size - (x.shape[1] % self.config.pool_window_size)
             x = torch.cat([x,  silence_latent[:1,:pad_len].repeat(x.shape[0],1,1)], dim=1)
@@ -1622,6 +1639,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         audio_codes: torch.FloatTensor = None,
     ):
         
+        """Prepare conditioning tensors and masks for generation or training."""
         dtype = hidden_states.dtype
         encoder_hidden_states, encoder_attention_mask = self.encoder(
             text_hidden_states=text_hidden_states,
@@ -1728,6 +1746,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         }
         
     def training_losses(self, **kwargs):
+        """Compute training losses for the conditioned generation model."""
         return self.forward(**kwargs)
     
     def prepare_noise(self, context_latents: torch.FloatTensor, seed: Union[int, List[int], None] = None):
@@ -1770,9 +1789,11 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         return noise
 
     def get_x0_from_noise(self, zt, vt, t):
+        """Recover the denoised estimate from the current latent and noise pair."""
         return zt - vt * t.unsqueeze(-1).unsqueeze(-1)
 
     def renoise(self, x, t, noise=None):
+        """Add diffusion noise back to a latent sample at timestep t."""
         if noise is None:
             noise = torch.randn_like(x)
         if isinstance(t, torch.Tensor) and t.ndim != x.ndim:
@@ -1812,6 +1833,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         cover_noise_strength: float = 0.0,
         **kwargs,
     ):
+        """Generate audio or audio tokens from the prepared conditioning inputs."""
         if attention_mask is None:
             latent_length = src_latents.shape[1]
             attention_mask = torch.ones(src_latents.shape[0], latent_length, device=src_latents.device, dtype=src_latents.dtype)
@@ -2016,6 +2038,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
 
 def test_forward(model, seed=42):
     # Fix random seed for reproducibility
+    """Run a lightweight forward smoke test for the SFT model."""
     import random
     import numpy as np
     random.seed(seed)

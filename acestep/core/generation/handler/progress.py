@@ -24,6 +24,7 @@ _DEFAULT_MIN_PHASE_PROFILE_SAMPLES = 8
 
 
 class ProgressMixin:
+    """Shared progress helpers for generation handlers that emit phase-aware updates."""
     def _set_runtime_progress_callback(
         self,
         callback: Optional[Callable[..., Any]],
