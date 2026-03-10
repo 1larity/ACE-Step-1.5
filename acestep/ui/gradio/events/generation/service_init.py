@@ -112,6 +112,5 @@ def init_service_wrapper(
 def on_tier_change(selected_tier, llm_handler=None):
     """Handle manual tier override from the UI dropdown."""
     all_disk_models = llm_handler.get_available_5hz_lm_models() if llm_handler else []
-    if llm_handler:
-        llm_handler.get_available_5hz_lm_models = lambda: list(dict.fromkeys(all_disk_models + get_external_lm_choices()))
-    return build_tier_updates(selected_tier=selected_tier, llm_handler=llm_handler)
+    merged_models = list(dict.fromkeys((all_disk_models or []) + get_external_lm_choices()))
+    return build_tier_updates(selected_tier=selected_tier, all_disk_models=merged_models)

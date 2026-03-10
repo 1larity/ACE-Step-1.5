@@ -32,9 +32,9 @@ def resolve_quantization_value(*, quantization: bool, device: str) -> tuple[bool
     return quantization, quant_value
 
 
-def resolve_local_lm_request(*, gpu_config: Any, init_llm: bool, lm_model_path: str, device: str, backend: str) -> tuple[bool, str | None, str]:
+def resolve_local_lm_request(*, gpu_config: Any, init_llm: bool, lm_model_path: str | None, device: str, backend: str) -> tuple[bool, str | None, str]:
     """Resolve whether and how the local LM should be initialized."""
-    should_initialize_local_lm = bool(init_llm and not lm_model_path.startswith("external:"))
+    should_initialize_local_lm = bool(init_llm and not str(lm_model_path or "").startswith("external:"))
     lm_device = None
     if should_initialize_local_lm:
         lm_device = "cpu" if not gpu_config.available_lm_models else device
@@ -95,7 +95,7 @@ def build_runtime_limit_updates(*, gpu_config: Any, llm_handler: Any, current_ba
     return duration_update, batch_update, status_suffix, local_lm_initialized
 
 
-def build_tier_updates(*, selected_tier: str, llm_handler: Any) -> tuple[Any, ...]:
+def build_tier_updates(*, selected_tier: str, all_disk_models: list[str]) -> tuple[Any, ...]:
     """Build UI updates for a manual GPU tier override."""
     if not selected_tier or selected_tier not in GPU_TIER_CONFIGS:
         logger.warning(f"Invalid tier selection: {selected_tier}")
@@ -105,7 +105,6 @@ def build_tier_updates(*, selected_tier: str, llm_handler: Any) -> tuple[Any, ..
     logger.info(f"Tier manually changed to {selected_tier} - updating UI defaults")
     available_backends = ["pt", "mlx"] if new_config.lm_backend_restriction == "pt_mlx_only" else ["vllm", "pt", "mlx"]
     recommended_backend = new_config.recommended_backend if new_config.recommended_backend in available_backends else available_backends[0]
-    all_disk_models = llm_handler.get_available_5hz_lm_models() if llm_handler else []
     recommended_lm = new_config.recommended_lm_model
     default_lm_model = find_best_lm_model_on_disk(recommended_lm, all_disk_models)
     max_duration = new_config.max_duration_without_lm
