@@ -62,11 +62,11 @@ def _cmd_setup(args: argparse.Namespace) -> int:
     print(f"Stored encrypted external AI API key at: {store.secret_path}")
 
     if args.save_passphrase:
-        ok, message = store_runtime_passphrase(passphrase)
+        ok, _message = store_runtime_passphrase(passphrase)
         if ok:
-            print(message)
+            print("Saved runtime passphrase in system key storage.")
         else:
-            print(f"Warning: passphrase not saved in keyring ({message}).")
+            print("Warning: runtime passphrase was not saved in system key storage.")
             print(
                 "Set ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE or "
                 "ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE_FILE before launching Gradio."
@@ -88,10 +88,13 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print(f"Encrypted key exists: {'yes' if store.exists() else 'no'}")
     print(f"Direct API key env set: {'yes' if direct_key_set else 'no'}")
     print(f"Runtime passphrase source found: {'yes' if bool(passphrase) else 'no'}")
+    secret_identity_overridden = bool(
+        os.getenv("ACESTEP_EXTERNAL_AI_SECRET_SERVICE", "").strip()
+        or os.getenv("ACESTEP_EXTERNAL_AI_SECRET_USERNAME", "").strip()
+    )
     print(
-        "Secret lookup identity: "
-        f"service={os.getenv('ACESTEP_EXTERNAL_AI_SECRET_SERVICE', EXTERNAL_AI_SECRET_SERVICE)} "
-        f"username={os.getenv('ACESTEP_EXTERNAL_AI_SECRET_USERNAME', EXTERNAL_AI_SECRET_USERNAME)}"
+        "Secret lookup identity configured: "
+        f"{'custom' if secret_identity_overridden else 'default'}"
     )
 
     key_usable = False

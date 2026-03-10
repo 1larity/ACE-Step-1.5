@@ -421,6 +421,31 @@ class ExternalAITextTasksTests(unittest.TestCase):
         self.assertIn("Responses API", message)
 
     @patch("acestep.text_tasks.external_ai_text_tasks.request.urlopen")
+    def test_request_external_ai_plan_does_not_treat_non_openai_host_as_openai(self, urlopen_mock) -> None:
+        """OpenAI quota guidance should require the parsed host to match api.openai.com exactly."""
+        body = b'{"error":{"code":"insufficient_quota","type":"insufficient_quota","message":"You exceeded your current quota"}}'
+        urlopen_mock.side_effect = HTTPError(
+            url="https://example.com/redirect/api.openai.com/v1/chat/completions",
+            code=429,
+            msg="Too Many Requests",
+            hdrs=None,
+            fp=BytesIO(body),
+        )
+
+        with self.assertRaises(ExternalAIClientError) as exc_context:
+            request_external_ai_plan(
+                api_key="secret",
+                intent="test intent",
+                model="gpt-4o-mini",
+                base_url="https://example.com/redirect/api.openai.com/v1/chat/completions",
+                timeout_sec=5,
+                task_focus="all",
+            )
+
+        message = str(exc_context.exception)
+        self.assertNotIn("OpenAI API quota is unavailable", message)
+
+    @patch("acestep.text_tasks.external_ai_text_tasks.request.urlopen")
     def test_request_external_ai_plan_surfaces_1113_balance_guidance(self, urlopen_mock) -> None:
         """HTTP 1113 responses should include billing-path guidance and request target."""
         body = b'{"error":{"code":"1113","message":"Insufficient balance"}}'

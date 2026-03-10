@@ -538,8 +538,10 @@ def _build_http_error_guidance(*, detail: str, model: str, base_url: str) -> str
         error_type = ""
         message = detail.strip().lower()
 
-    normalized_base_url = (base_url or "").lower()
-    is_openai_endpoint = "api.openai.com" in normalized_base_url
+    parsed_base_url = parse.urlparse(base_url or "")
+    normalized_host = (parsed_base_url.hostname or "").strip().lower()
+    normalized_path = (parsed_base_url.path or "").strip().lower()
+    is_openai_endpoint = normalized_host == "api.openai.com"
     quota_like_error = (
         code == "1113"
         or code == "insufficient_quota"
@@ -553,7 +555,9 @@ def _build_http_error_guidance(*, detail: str, model: str, base_url: str) -> str
             " | Model not found. Try a valid provider model and verify your account has access."
         )
     if code == "1113":
-        is_coding_endpoint = "api/coding/paas/v4" in normalized_base_url
+        is_coding_endpoint = normalized_host == "api.z.ai" and normalized_path.startswith(
+            "/api/coding/paas/v4/"
+        )
         endpoint_hint = ""
         if not is_coding_endpoint:
             endpoint_hint = (
