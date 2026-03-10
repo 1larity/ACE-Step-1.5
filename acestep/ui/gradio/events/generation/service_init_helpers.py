@@ -11,6 +11,7 @@ import torch
 from loguru import logger
 
 from acestep.gpu_config import find_best_lm_model_on_disk, get_gpu_device_name, get_gpu_config_for_tier, is_lm_model_size_allowed, set_global_gpu_config, GPU_TIER_CONFIGS, GPU_TIER_LABELS
+from acestep.ui.gradio.i18n import t
 from .model_config import get_model_type_ui_settings, is_pure_base_model
 
 
@@ -110,16 +111,45 @@ def build_tier_updates(*, selected_tier: str, all_disk_models: list[str]) -> tup
     max_duration = new_config.max_duration_without_lm
     max_batch = new_config.max_batch_size_without_lm
     tier_label = GPU_TIER_LABELS.get(selected_tier, selected_tier)
-    gpu_info_text = f"**{get_gpu_device_name()}** - {new_config.gpu_memory_gb:.1f} GB VRAM - Auto tier: **{tier_label}**"
+    gpu_info_text = (
+        f"**{get_gpu_device_name()}** - {new_config.gpu_memory_gb:.1f} GB VRAM "
+        f"- {t('service.gpu_auto_tier')}: **{tier_label}**"
+    )
     return (
-        gr.update(value=new_config.offload_to_cpu_default, elem_classes=["has-info-container"]),
-        gr.update(value=new_config.offload_dit_to_cpu_default, elem_classes=["has-info-container"]),
+        gr.update(
+            value=new_config.offload_to_cpu_default,
+            info=t("service.offload_cpu_info") + (" (recommended for this tier)" if new_config.offload_to_cpu_default else ""),
+            elem_classes=["has-info-container"],
+        ),
+        gr.update(
+            value=new_config.offload_dit_to_cpu_default,
+            info=t("service.offload_dit_cpu_info") + (" (recommended for this tier)" if new_config.offload_dit_to_cpu_default else ""),
+            elem_classes=["has-info-container"],
+        ),
         gr.update(value=new_config.compile_model_default),
-        gr.update(value=new_config.quantization_default, elem_classes=["has-info-container"]),
+        gr.update(
+            value=new_config.quantization_default,
+            info=t("service.quantization_info") + (" (recommended for this tier)" if new_config.quantization_default else ""),
+            elem_classes=["has-info-container"],
+        ),
         gr.update(choices=available_backends, value=recommended_backend, elem_classes=["has-info-container"]),
-        gr.update(choices=all_disk_models, value=default_lm_model, elem_classes=["has-info-container"]),
+        gr.update(
+            choices=all_disk_models,
+            value=default_lm_model,
+            info=t("service.lm_model_path_info") + (f" (Recommended: {recommended_lm})" if recommended_lm else " (LM not available for this GPU tier)."),
+            elem_classes=["has-info-container"],
+        ),
         gr.update(value=new_config.init_lm_default, elem_classes=["has-info-container"]),
-        gr.update(value=min(2, max_batch), maximum=max_batch, info=f"Number of samples to generate (Max: {max_batch}).", elem_classes=["has-info-container"]),
-        gr.update(maximum=float(max_duration), info=f"Duration in seconds (-1 for auto). Max: {max_duration}s / {max_duration // 60} min.", elem_classes=["has-info-container"]),
+        gr.update(
+            value=min(2, max_batch),
+            maximum=max_batch,
+            info=f"Number of samples to generate (Max: {max_batch}).",
+            elem_classes=["has-info-container"],
+        ),
+        gr.update(
+            maximum=float(max_duration),
+            info=f"Duration in seconds (-1 for auto). Max: {max_duration}s / {max_duration // 60} min.",
+            elem_classes=["has-info-container"],
+        ),
         gr.update(value=gpu_info_text),
     )
