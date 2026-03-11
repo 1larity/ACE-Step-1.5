@@ -36,7 +36,7 @@ class ExternalLmConfigTests(unittest.TestCase):
     @patch("acestep.ui.gradio.interfaces.generation_external_lm_config.gr.Textbox")
     @patch("acestep.ui.gradio.interfaces.generation_external_lm_config.gr.Checkbox")
     @patch("acestep.ui.gradio.interfaces.generation_external_lm_config.gr.Button")
-    @patch("acestep.ui.gradio.interfaces.generation_external_lm_config.get_external_provider_choices", return_value=["zai", "ollama"])
+    @patch("acestep.ui.gradio.interfaces.generation_external_lm_config.get_external_provider_choices", return_value=[("Z.ai", "zai"), ("Ollama", "ollama")])
     @patch("acestep.ui.gradio.interfaces.generation_external_lm_config.get_active_external_lm_model", return_value="fallback-model")
     @patch("acestep.ui.gradio.interfaces.generation_external_lm_config.hydrate_external_lm_env_from_store")
     def test_create_external_lm_config_hydrates_selected_provider(
