@@ -82,7 +82,7 @@ So the rule is:
 ## Quick Start
 
 1. Open **Settings** in the Gradio UI.
-2. Open the **External LLM** tab.
+2. Open the **External LLM** accordion within **Settings**.
 3. Pick a **Provider**.
 4. Check or edit the **Protocol**, **Base URL**, and **Model**.
 5. Enter your **API key** if the provider requires one.
