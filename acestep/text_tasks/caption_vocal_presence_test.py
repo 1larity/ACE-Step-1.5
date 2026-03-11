@@ -88,6 +88,18 @@ class CaptionVocalPresenceTests(unittest.TestCase):
 
         self.assertEqual(caption, result)
 
+    def test_generic_end_timing_without_vocal_cue_does_not_skip_normalization(self):
+        """Arrangement timing alone should not be treated as delayed vocal entry."""
+        caption = "A shimmering synth motif lands at the end before the groove opens wider."
+
+        result = ensure_caption_has_global_vocal_presence(
+            caption,
+            lyrics="[Verse 1]\nHold me in the glow",
+            vocal_language="en",
+        )
+
+        self.assertTrue(result.startswith("Lead vocals stay present from the opening section onward."))
+
     def test_skips_instrumental_captions(self):
         """Instrumental outputs should not receive vocal or instrumentation setup sentences."""
         caption = "A meditative solo piano piece slowly blooms into a cinematic ending."

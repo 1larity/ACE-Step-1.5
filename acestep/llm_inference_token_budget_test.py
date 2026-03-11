@@ -13,7 +13,7 @@ try:
         UNDERSTAND_PHASE_FALLBACK_MAX_TOKENS,
         UNDERSTAND_PHASE_MAX_TOKENS,
     )
-except Exception as exc:  # pragma: no cover - import guard for constrained envs
+except (ImportError, ModuleNotFoundError, OSError) as exc:  # pragma: no cover - import guard for constrained envs
     COT_PHASE_FALLBACK_MAX_TOKENS = None
     LLMHandler = None
     UNDERSTAND_PHASE_FALLBACK_MAX_TOKENS = None

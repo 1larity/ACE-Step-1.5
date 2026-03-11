@@ -83,14 +83,15 @@ def fetch_models_data(
     )
     selected = (current_model or "").strip()
     if selected not in models:
-        selected = models[0]
+        selected = models[0] if models else ""
 
+    top_results = ", ".join(models[:10]) if models else "(none)"
     status_text = "\n".join(
         [
             f"Provider: {profile.label}",
             f"Discovered models: {len(models)}",
-            f"Selected: {selected}",
-            "Top results: " + ", ".join(models[:10]),
+            f"Selected: {selected or '(none)'}",
+            "Top results: " + top_results,
         ]
     )
     return models, selected, status_text

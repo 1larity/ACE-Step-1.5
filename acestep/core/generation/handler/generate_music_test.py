@@ -162,6 +162,10 @@ class _Host(GenerateMusicMixin):
         self.calls["_build_generate_music_success_payload"] = kwargs
         return self._final_payload
 
+    def _empty_cache(self):
+        """Ignore cache-clearing hooks in orchestration unit tests."""
+        self.calls["_empty_cache"] = True
+
     def switch_to_training_preset(self):
         """Simulate successful preset switch in fallback tests."""
         self.switch_calls += 1
@@ -419,6 +423,37 @@ class GenerateMusicMixinTests(unittest.TestCase):
         self.assertEqual(host.cpu_switch_calls, 1)
         self.assertEqual(len(host.service_run_calls), 1)
 
+    def test_generate_music_preserves_global_caption_on_recursive_fallback(self):
+        """It forwards ``global_caption`` unchanged when a fallback re-enters generate_music."""
+
+        class _RecordingHost(_Host):
+            def __init__(self):
+                super().__init__()
+                self.generate_music_kwargs = []
+
+            def generate_music(self, *args, **kwargs):
+                self.generate_music_kwargs.append(dict(kwargs))
+                if len(self.generate_music_kwargs) > 1:
+                    return self._final_payload
+                return super().generate_music(*args, **kwargs)
+
+        host = _RecordingHost()
+        host.quantization = "int8_weight_only"
+        host.device = "cuda"
+
+        with patch.object(host, "_should_preflight_cpu_stability_mode", return_value=True):
+            out = host.generate_music(
+                captions="cap",
+                global_caption="global song framing",
+                lyrics="lyr",
+                inference_steps=8,
+                guidance_scale=7.0,
+                use_adg=True,
+            )
+
+        self.assertEqual(out, host._final_payload)
+        self.assertEqual("global song framing", host.generate_music_kwargs[1]["global_caption"])
+
     def test_generate_music_cuda_canary_switches_to_cpu_before_full_run(self):
         """It uses canary probe and switches to CPU before full diffusion when canary is non-finite."""
         host = _Host()
@@ -450,6 +485,27 @@ class GenerateMusicMixinTests(unittest.TestCase):
         self.assertEqual(out, host._final_payload)
         self.assertEqual(host.cpu_switch_calls, 1)
         self.assertEqual(len(host.service_run_calls), 2)
+
+    def test_generate_music_releases_canary_cuda_memory_before_full_run(self):
+        """It clears CUDA cache after the canary probe before starting full diffusion."""
+        host = _Host()
+        host.quantization = "int8_weight_only"
+        host.device = "cuda"
+
+        with patch.dict(os.environ, {"ACESTEP_ALLOW_RISKY_QUANTIZED_CUDA": "1"}, clear=False), \
+                patch.object(host, "_should_run_cuda_stability_canary", return_value=True), \
+                patch.object(GENERATE_MUSIC_MODULE.torch.cuda, "is_available", return_value=True), \
+                patch.object(GENERATE_MUSIC_MODULE.torch.cuda, "empty_cache") as empty_cache_mock:
+            out = host.generate_music(
+                captions="cap",
+                lyrics="lyr",
+                inference_steps=8,
+                guidance_scale=7.0,
+                use_adg=True,
+            )
+
+        self.assertEqual(out, host._final_payload)
+        empty_cache_mock.assert_called()
 
     def test_generate_music_uses_profiled_phase_ranges_for_progress_mapping(self):
         """It forwards profiled phase ranges to service/decode progress mapping."""

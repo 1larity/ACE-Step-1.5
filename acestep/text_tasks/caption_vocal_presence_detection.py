@@ -41,16 +41,22 @@ EXPLICIT_DELAYED_VOCAL_CUES = (
     "vocals arrive later",
     "vocal arrives later",
     "voice enters later",
+    "ending with vocals",
+    "ends with vocals",
+    "brief vocal section",
+    "late vocal entry",
+    "vocals enter in the outro",
+    "vocals arrive in the outro",
+    "vocals enter in the final section",
+    "vocals enter in the final chorus",
+)
+GENERIC_DELAYED_VOCAL_TIMING_CUES = (
     "toward the end",
     "towards the end",
     "at the end",
     "in the final section",
     "in the final chorus",
     "in the outro",
-    "ending with vocals",
-    "ends with vocals",
-    "brief vocal section",
-    "late vocal entry",
 )
 INSTRUMENTAL_LYRIC_MARKERS = {"[instrumental]", "[inst]", "instrumental"}
 
@@ -102,7 +108,21 @@ def caption_has_early_instrumentation_block(caption: str) -> bool:
 def caption_has_explicit_delayed_vocal_entry(caption: str) -> bool:
     """Return whether the caption intentionally delays vocal entry."""
     normalized = (caption or "").strip().lower()
-    return any(cue in normalized for cue in EXPLICIT_DELAYED_VOCAL_CUES)
+    if any(cue in normalized for cue in EXPLICIT_DELAYED_VOCAL_CUES):
+        return True
+
+    for cue in GENERIC_DELAYED_VOCAL_TIMING_CUES:
+        start = 0
+        while True:
+            index = normalized.find(cue, start)
+            if index == -1:
+                break
+            window_start = max(0, index - 48)
+            window_end = min(len(normalized), index + len(cue) + 48)
+            if EARLY_VOCAL_MARKER_PATTERN.search(normalized[window_start:window_end]):
+                return True
+            start = index + len(cue)
+    return False
 
 
 def extract_vocal_context_window(caption: str) -> str:

@@ -22,6 +22,17 @@ DEFAULT_ZAI_MODEL = "glm-4.5-flash"
 
 
 def _build_store(path_override: str | None) -> EncryptedSecretStore:
+    """Build the encrypted secret store used by the external AI CLI.
+
+    Args:
+        path_override: Optional explicit secret-store path from the CLI.
+
+    Returns:
+        EncryptedSecretStore: Configured encrypted secret store instance.
+
+    Raises:
+        OSError: If path expansion fails unexpectedly.
+    """
     env_path = os.getenv("ACESTEP_ZAI_SECRET_PATH", "").strip()
     if path_override or env_path:
         final = Path(path_override or env_path).expanduser()
@@ -31,6 +42,18 @@ def _build_store(path_override: str | None) -> EncryptedSecretStore:
 
 
 def _resolve_passphrase(raw: str | None, *, confirm: bool = False) -> str:
+    """Resolve a secret-store passphrase from CLI, env, or prompt.
+
+    Args:
+        raw: Optional passphrase supplied on the command line.
+        confirm: Whether to require a confirmation prompt.
+
+    Returns:
+        str: Resolved passphrase value.
+
+    Raises:
+        SecretStoreError: If confirmation is requested and the prompts differ.
+    """
     if raw:
         return raw
     env_value = os.getenv("ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE", "")
@@ -46,6 +69,17 @@ def _resolve_passphrase(raw: str | None, *, confirm: bool = False) -> str:
 
 
 def _resolve_api_key(raw: str | None) -> str:
+    """Resolve a Z.ai API key from CLI, env, or secure prompt input.
+
+    Args:
+        raw: Optional API key supplied on the command line.
+
+    Returns:
+        str: Resolved API key string.
+
+    Raises:
+        EOFError: If hidden terminal input is unavailable.
+    """
     if raw:
         return raw.strip()
     env_value = os.getenv("ACESTEP_ZAI_API_KEY", "").strip()
@@ -55,6 +89,17 @@ def _resolve_api_key(raw: str | None) -> str:
 
 
 def _resolve_intent(raw: str | None) -> str:
+    """Resolve the planning intent from CLI input or stdin.
+
+    Args:
+        raw: Optional natural-language intent from the CLI.
+
+    Returns:
+        str: Non-empty intent text.
+
+    Raises:
+        ValueError: If no intent text is available.
+    """
     if raw and raw.strip():
         return raw.strip()
     if not sys.stdin.isatty():
@@ -65,6 +110,18 @@ def _resolve_intent(raw: str | None) -> str:
 
 
 def _print_or_write_json(payload: dict, output_path: str | None) -> None:
+    """Print JSON to stdout or write it to a file.
+
+    Args:
+        payload: JSON-serializable payload to emit.
+        output_path: Optional destination path for file output.
+
+    Returns:
+        None
+
+    Raises:
+        OSError: If writing the output file fails.
+    """
     text = json.dumps(payload, ensure_ascii=False, indent=2)
     if output_path:
         out_path = Path(output_path).expanduser()
@@ -76,6 +133,17 @@ def _print_or_write_json(payload: dict, output_path: str | None) -> None:
 
 
 def _cmd_set_key(args: argparse.Namespace) -> int:
+    """Handle the ``set-key`` subcommand.
+
+    Args:
+        args: Parsed CLI arguments for the subcommand.
+
+    Returns:
+        int: Process exit code.
+
+    Raises:
+        SecretStoreError: If encrypted key storage fails.
+    """
     store = _build_store(args.store_path)
     api_key = _resolve_api_key(args.api_key)
     passphrase = _resolve_passphrase(args.passphrase, confirm=True)
@@ -85,6 +153,17 @@ def _cmd_set_key(args: argparse.Namespace) -> int:
 
 
 def _cmd_clear_key(args: argparse.Namespace) -> int:
+    """Handle the ``clear-key`` subcommand.
+
+    Args:
+        args: Parsed CLI arguments for the subcommand.
+
+    Returns:
+        int: Process exit code.
+
+    Raises:
+        SecretStoreError: If encrypted key deletion fails.
+    """
     store = _build_store(args.store_path)
     store.clear()
     print(f"Cleared encrypted key at: {store.secret_path}")
@@ -92,8 +171,20 @@ def _cmd_clear_key(args: argparse.Namespace) -> int:
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:
+    """Handle the ``plan`` subcommand for external AI generation planning.
+
+    Args:
+        args: Parsed CLI arguments for the subcommand.
+
+    Returns:
+        int: Process exit code.
+
+    Raises:
+        SecretStoreError: If encrypted key loading fails and no direct API key is available.
+        ValueError: If the planning intent is missing.
+    """
     store = _build_store(args.store_path)
-    api_key = args.api_key
+    api_key = (args.api_key or os.getenv("ACESTEP_ZAI_API_KEY", "")).strip()
     if not api_key:
         passphrase = _resolve_passphrase(args.passphrase, confirm=False)
         api_key = store.load(passphrase=passphrase)
@@ -121,6 +212,17 @@ def _cmd_plan(args: argparse.Namespace) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Build the external AI CLI argument parser.
+
+    Args:
+        None
+
+    Returns:
+        argparse.ArgumentParser: Configured top-level parser.
+
+    Raises:
+        None
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 

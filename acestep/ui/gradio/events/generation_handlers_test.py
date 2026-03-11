@@ -396,6 +396,40 @@ class GenerationHandlersTests(unittest.TestCase):
         external_generate_mock.assert_called_once()
         warning_mock.assert_called_once_with("External AI request timed out after 60s.")
 
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.get_i18n")
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.build_duration_aware_fallback_lyrics")
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions._execute_generate_lyrics")
+    def test_handle_generate_lyrics_from_caption_uses_resolved_language_for_final_fallback(
+        self,
+        execute_generate_mock,
+        fallback_mock,
+        get_i18n_mock,
+    ):
+        """Final scaffold fallback should keep the resolved vocal language, not raw `unknown`."""
+        get_i18n_mock.return_value = type("I18n", (), {"current_language": "ja"})()
+        execute_generate_mock.side_effect = [
+            (type("Result", (), {"lyrics": "[Verse 1]", "bpm": 120, "keyscale": "C major", "language": "", "timesignature": "4/4"})(), 30.0, "first"),
+            (type("Result", (), {"lyrics": "[Verse 1]", "bpm": 120, "keyscale": "C major", "language": "", "timesignature": "4/4"})(), 30.0, "retry"),
+        ]
+        fallback_mock.return_value = "fallback lyrics"
+
+        result = generation_handlers.handle_generate_lyrics_from_caption(
+            llm_handler=SimpleNamespace(llm_initialized=True),
+            caption="anthemic electro-pop",
+            bpm=120,
+            audio_duration=30.0,
+            key_scale="C major",
+            time_signature="4/4",
+            vocal_language="unknown",
+            lm_temperature=0.9,
+            lm_top_k=10,
+            lm_top_p=0.9,
+            constrained_decoding_debug=False,
+        )
+
+        self.assertEqual("fallback lyrics", result[0])
+        self.assertEqual("ja", fallback_mock.call_args.kwargs["vocal_language"])
+
     @patch("acestep.ui.gradio.events.generation.llm_format_actions.gr.Info")
     @patch(
         "acestep.ui.gradio.events.generation.llm_format_actions.generate_lyrics_from_caption_with_external_provider"
@@ -1408,6 +1442,28 @@ class LoadRandomExampleExternalLmTests(unittest.TestCase):
         self.assertTrue(result[2], "think should remain enabled under external LM mode")
         warning_mock.assert_not_called()
         info_mock.assert_called_once()
+
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.logger.exception")
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.gr.Warning")
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.load_random_example")
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.understand_music")
+    def test_sample_example_smart_logs_exception_before_fallback(
+        self,
+        understand_music_mock,
+        load_random_example_mock,
+        warning_mock,
+        logger_exception_mock,
+    ):
+        """LM sample failures should be logged before falling back to static examples."""
+        understand_music_mock.side_effect = RuntimeError("boom")
+        load_random_example_mock.return_value = ("cap", "lyr", True, 120, 30, "C major", "en", "4/4")
+
+        llm_handler = SimpleNamespace(llm_initialized=True)
+        result = generation_handlers.sample_example_smart(llm_handler, "text2music")
+
+        self.assertEqual(("cap", "lyr", True, 120, 30, "C major", "en", "4/4"), result)
+        warning_mock.assert_called_once()
+        logger_exception_mock.assert_called_once()
 
 
 @unittest.skipIf(generation_handlers is None, f"generation_handlers import unavailable: {_IMPORT_ERROR}")

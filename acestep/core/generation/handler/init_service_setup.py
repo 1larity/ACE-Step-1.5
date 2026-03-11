@@ -85,7 +85,7 @@ class InitServiceSetupMixin:
                     major, _ = torch.cuda.get_device_capability(0)
                     if major < 7:
                         logger.info(
-                            "[initialize_service] Pre-Ampere CUDA + quantization detected: "
+                            "[initialize_service] Pre-Volta CUDA + quantization detected: "
                             "disabling torch.compile for stability."
                         )
                         normalized_compile = False

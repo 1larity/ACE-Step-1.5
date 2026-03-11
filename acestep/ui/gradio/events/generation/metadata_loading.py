@@ -10,6 +10,7 @@ import json
 import os
 
 import gradio as gr
+from loguru import logger
 
 from acestep.gpu_config import get_global_gpu_config
 from acestep.inference import understand_music
@@ -121,7 +122,9 @@ def sample_example_smart(llm_handler, task_type: str, constrained_decoding_debug
             gr.Info(t("messages.lm_generated"))
             return result.caption, result.lyrics, True, result.bpm, clamp_duration_to_gpu_limit(result.duration, llm_handler), result.keyscale, result.language, result.timesignature
     except Exception:
-        pass
+        logger.exception(
+            "[sample_example_smart] LM example generation failed; falling back to static example."
+        )
     gr.Warning(t("messages.lm_fallback"))
     return load_random_example(task_type)
 

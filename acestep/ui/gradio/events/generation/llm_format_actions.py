@@ -844,7 +844,7 @@ def handle_generate_lyrics_from_caption(
         )
         generated_lyrics = build_duration_aware_fallback_lyrics(
             caption=caption,
-            vocal_language=vocal_language,
+            vocal_language=resolved_vocal_language,
             bpm=bpm,
             audio_duration=audio_duration,
             variation_nonce=fallback_nonce,

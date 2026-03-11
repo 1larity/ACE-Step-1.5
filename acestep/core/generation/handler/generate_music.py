@@ -426,6 +426,7 @@ class GenerateMusicMixin:
                 logger.info("[generate_music] {}", switch_status)
                 return self.generate_music(
                     captions=captions,
+                    global_caption=global_caption,
                     lyrics=lyrics,
                     bpm=bpm,
                     key_scale=key_scale,
@@ -607,6 +608,7 @@ class GenerateMusicMixin:
                                 logger.info("[generate_music] {}", switch_status)
                                 return self.generate_music(
                                     captions=captions,
+                                    global_caption=global_caption,
                                     lyrics=lyrics,
                                     bpm=bpm,
                                     key_scale=key_scale,
@@ -651,6 +653,11 @@ class GenerateMusicMixin:
                             "({}); continuing with normal generation.",
                             canary_exc,
                         )
+                finally:
+                    canary_outputs = None
+                    canary_run = None
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
             if progress:
                 progress(service_start_progress, desc="Starting diffusion...")
 
@@ -833,6 +840,7 @@ class GenerateMusicMixin:
                                 logger.info("[generate_music] {}", switch_status)
                                 return self.generate_music(
                                     captions=captions,
+                                    global_caption=global_caption,
                                     lyrics=lyrics,
                                     bpm=bpm,
                                     key_scale=key_scale,
@@ -894,6 +902,7 @@ class GenerateMusicMixin:
                                 logger.info("[generate_music] {}", switch_status)
                                 return self.generate_music(
                                     captions=captions,
+                                    global_caption=global_caption,
                                     lyrics=lyrics,
                                     bpm=bpm,
                                     key_scale=key_scale,
@@ -960,6 +969,7 @@ class GenerateMusicMixin:
                         logger.info("[generate_music] {}", switch_status)
                         return self.generate_music(
                             captions=captions,
+                            global_caption=global_caption,
                             lyrics=lyrics,
                             bpm=bpm,
                             key_scale=key_scale,

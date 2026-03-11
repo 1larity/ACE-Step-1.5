@@ -423,6 +423,30 @@ class ExternalAITextTasksTests(unittest.TestCase):
         self.assertIn("Responses API", message)
 
     @patch("acestep.text_tasks.external_ai_text_tasks.request.urlopen")
+    def test_request_external_ai_plan_handles_scalar_error_payloads(self, urlopen_mock) -> None:
+        """Scalar error payloads should not raise attribute errors while building guidance."""
+        body = b'{"error":"gateway overloaded"}'
+        urlopen_mock.side_effect = HTTPError(
+            url="https://example.invalid/chat/completions",
+            code=502,
+            msg="Bad Gateway",
+            hdrs=None,
+            fp=BytesIO(body),
+        )
+
+        with self.assertRaises(ExternalAIClientError) as exc_context:
+            request_external_ai_plan(
+                api_key="secret",
+                intent="test intent",
+                model="glm-4-flash",
+                base_url="https://example.invalid/chat/completions",
+                timeout_sec=5,
+                task_focus="all",
+            )
+
+        self.assertIn("gateway overloaded", str(exc_context.exception))
+
+    @patch("acestep.text_tasks.external_ai_text_tasks.request.urlopen")
     def test_request_external_ai_plan_does_not_treat_non_openai_host_as_openai(self, urlopen_mock) -> None:
         """OpenAI quota guidance should require the parsed host to match api.openai.com exactly."""
         body = b'{"error":{"code":"insufficient_quota","type":"insufficient_quota","message":"You exceeded your current quota"}}'

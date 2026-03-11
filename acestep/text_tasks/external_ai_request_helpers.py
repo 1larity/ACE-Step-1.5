@@ -122,7 +122,13 @@ def build_http_error_guidance(*, detail: str, model: str, base_url: str) -> str:
         return ""
     try:
         payload = json.loads(detail)
-        err = payload.get("error", {}) if isinstance(payload, dict) else {}
+        err_payload = payload.get("error", {}) if isinstance(payload, dict) else {}
+        if isinstance(err_payload, dict):
+            err = err_payload
+        elif err_payload in (None, ""):
+            err = {}
+        else:
+            err = {"message": str(err_payload)}
         code = str(err.get("code", "")).strip()
         error_type = str(err.get("type", "")).strip().lower()
         message = str(err.get("message", "")).strip().lower()

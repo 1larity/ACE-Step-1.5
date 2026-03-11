@@ -3,6 +3,8 @@ Constants for ACE-Step
 Centralized constants used across the codebase
 """
 
+import os
+
 # ==============================================================================
 # Language Constants
 # ==============================================================================
@@ -209,8 +211,8 @@ DEBUG_INFERENCE = "OFF"
 DEBUG_TRAINING = "OFF"
 DEBUG_DATASET = "OFF"
 DEBUG_AUDIO = "OFF"
-DEBUG_LLM = "ON"
-DEBUG_EXTERNAL_AI = "OFF"
+DEBUG_LLM = os.getenv("DEBUG_LLM", "OFF").strip().upper()
+DEBUG_EXTERNAL_AI = os.getenv("DEBUG_EXTERNAL_AI", "OFF").strip().upper()
 DEBUG_UI = "OFF"
 DEBUG_MODEL_LOADING = "OFF"
 DEBUG_GPU = "OFF"

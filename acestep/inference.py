@@ -23,7 +23,6 @@ from acestep.text_tasks.caption_vocal_presence import ensure_caption_has_global_
 IS_HUGGINGFACE_SPACE = os.environ.get("SPACE_ID") is not None
 
 _LYRIC_TAG_LINE_PATTERN = re.compile(r"^\s*\[[^\]]+\]\s*$")
-_LYRIC_WORD_PATTERN = re.compile(r"[A-Za-z0-9']+")
 _LYRIC_VOWEL_GROUP_PATTERN = re.compile(r"[aeiouy]+", re.IGNORECASE)
 _LYRIC_COMMA_LINEBREAK_PATTERN = re.compile(r"\s*,\s*")
 _LYRIC_DENSITY_WORDS_PER_BAR = 6.0
@@ -37,6 +36,23 @@ _LYRIC_DENSITY_MAX_SYLLABLE_BUDGET = 960
 _LYRIC_DENSITY_WARNING_RATIO = 1.6
 _LYRIC_DENSITY_AUTO_TRIM_RATIO = 3.0
 _LYRIC_DENSITY_TRIM_TARGET_RATIO = 1.4
+
+
+def _extract_lyric_word_tokens(text: str) -> List[str]:
+    """Return Unicode-aware lyric tokens while preserving apostrophes inside words."""
+    tokens: List[str] = []
+    current: List[str] = []
+    for char in text:
+        if char.isalnum() or (char == "'" and current):
+            current.append(char)
+            continue
+        if current:
+            tokens.append("".join(current))
+            current = []
+    if current:
+        tokens.append("".join(current))
+    return tokens
+
 
 def _get_spaces_gpu_decorator(duration=180):
     """
@@ -337,23 +353,26 @@ def _count_lyric_words(lyrics: str) -> int:
         stripped = line.strip()
         if not stripped or _LYRIC_TAG_LINE_PATTERN.fullmatch(stripped):
             continue
-        total += len(_LYRIC_WORD_PATTERN.findall(stripped))
+        total += len(_extract_lyric_word_tokens(stripped))
     return total
 
 
 def _estimate_word_syllables(word: str) -> int:
-    """Estimate syllable count for a single word using a lightweight heuristic."""
+    """Estimate syllable count for a lyric token using ASCII or Unicode-aware fallbacks."""
     normalized = re.sub(r"[^a-zA-Z]", "", word).lower()
-    if not normalized:
+    if normalized:
+        groups = _LYRIC_VOWEL_GROUP_PATTERN.findall(normalized)
+        syllables = len(groups)
+
+        if normalized.endswith("e") and not normalized.endswith(("le", "ye")) and syllables > 1:
+            syllables -= 1
+
+        return max(1, syllables)
+
+    unicode_units = [char for char in word if char.isalnum()]
+    if not unicode_units:
         return 0
-
-    groups = _LYRIC_VOWEL_GROUP_PATTERN.findall(normalized)
-    syllables = len(groups)
-
-    if normalized.endswith("e") and not normalized.endswith(("le", "ye")) and syllables > 1:
-        syllables -= 1
-
-    return max(1, syllables)
+    return max(1, len(unicode_units))
 
 
 def _count_lyric_syllables(lyrics: str) -> int:
@@ -365,7 +384,7 @@ def _count_lyric_syllables(lyrics: str) -> int:
         stripped = line.strip()
         if not stripped or _LYRIC_TAG_LINE_PATTERN.fullmatch(stripped):
             continue
-        for word in _LYRIC_WORD_PATTERN.findall(stripped):
+        for word in _extract_lyric_word_tokens(stripped):
             total += _estimate_word_syllables(word)
     return total
 
@@ -488,7 +507,7 @@ def _soft_trim_lyrics_to_word_budget(lyrics: str, word_budget: int) -> Tuple[str
             out_lines.append(line)
             continue
 
-        words = _LYRIC_WORD_PATTERN.findall(stripped)
+        words = _extract_lyric_word_tokens(stripped)
         if not words:
             out_lines.append(line)
             continue

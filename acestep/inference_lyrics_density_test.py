@@ -98,6 +98,23 @@ class InferenceLyricDensityTests(unittest.TestCase):
         self.assertIn("syllables", warning or "")
         self.assertLess(_count_lyric_syllables(adjusted), _count_lyric_syllables(lyrics))
 
+    def test_non_latin_lyrics_are_counted_for_density(self) -> None:
+        """Unicode lyric text should not collapse to zero word/syllable counts."""
+        lyrics = _build_lyrics("\u5fc3\u8df3", 80)
+
+        adjusted, warning, trimmed = _apply_soft_lyric_density_guard(
+            lyrics=lyrics,
+            duration=20,
+            bpm=120,
+            time_signature="4/4",
+        )
+
+        self.assertGreater(_count_lyric_words(lyrics), 0)
+        self.assertGreater(_count_lyric_syllables(lyrics), 0)
+        self.assertTrue(trimmed)
+        self.assertIn("too dense", warning or "")
+        self.assertLess(_count_lyric_words(adjusted), _count_lyric_words(lyrics))
+
     def test_instrumental_placeholder_is_ignored(self) -> None:
         """Instrumental placeholders should bypass lyric-density checks."""
         adjusted, warning, trimmed = _apply_soft_lyric_density_guard(
