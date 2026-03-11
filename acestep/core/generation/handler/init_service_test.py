@@ -871,8 +871,7 @@ class RocmDtypeTests(unittest.TestCase):
 
         with patch.object(GPU_CONFIG_MODULE, "is_cuda_available", return_value=True), \
                 patch.object(GPU_CONFIG_MODULE, "is_rocm_available", return_value=False), \
-                patch("torch.cuda.is_available", return_value=True), \
-                patch("torch.cuda.get_device_capability", return_value=(8, 0)):
+                patch.object(GPU_CONFIG_MODULE, "cuda_supports_bfloat16", return_value=True):
             with patch.object(host, "_ensure_models_present", return_value=None):
                 with patch.object(host, "_sync_model_code_if_needed"):
                     with patch.object(
@@ -909,8 +908,7 @@ class RocmDtypeTests(unittest.TestCase):
 
         with patch.object(GPU_CONFIG_MODULE, "is_cuda_available", return_value=True), \
                 patch.object(GPU_CONFIG_MODULE, "is_rocm_available", return_value=False), \
-                patch("torch.cuda.is_available", return_value=True), \
-                patch("torch.cuda.get_device_capability", return_value=(6, 1)):
+                patch.object(GPU_CONFIG_MODULE, "cuda_supports_bfloat16", return_value=False):
             with patch.object(host, "_ensure_models_present", return_value=None):
                 with patch.object(host, "_sync_model_code_if_needed"):
                     with patch.object(
@@ -958,8 +956,7 @@ class RocmDtypeTests(unittest.TestCase):
         host = _VaeHost(project_root="K:/fake_root", device="cuda")
         host.dtype = torch.float32
         with patch.object(MEMORY_UTILS_MODULE, "is_rocm_available", return_value=False), \
-                patch("torch.cuda.is_available", return_value=True), \
-                patch("torch.cuda.get_device_capability", return_value=(8, 0)):
+                patch.object(MEMORY_UTILS_MODULE, "cuda_supports_bfloat16", return_value=True):
             result = host._get_vae_dtype("cuda")
         self.assertEqual(result, torch.bfloat16)
 
@@ -968,10 +965,18 @@ class RocmDtypeTests(unittest.TestCase):
         host = _VaeHost(project_root="K:/fake_root", device="cuda")
         host.dtype = torch.float32
         with patch.object(MEMORY_UTILS_MODULE, "is_rocm_available", return_value=False), \
-                patch("torch.cuda.is_available", return_value=True), \
-                patch("torch.cuda.get_device_capability", return_value=(6, 1)):
+                patch.object(MEMORY_UTILS_MODULE, "cuda_supports_bfloat16", return_value=False):
             result = host._get_vae_dtype("cuda")
         self.assertEqual(result, torch.float16)
+
+    def test_get_vae_dtype_treats_cuda_index_device_as_cuda(self):
+        """It treats device strings like ``cuda:0`` as CUDA for VAE dtype selection."""
+        host = _VaeHost(project_root="K:/fake_root", device="cuda:0")
+        host.dtype = torch.float32
+        with patch.object(MEMORY_UTILS_MODULE, "is_rocm_available", return_value=False), \
+                patch.object(MEMORY_UTILS_MODULE, "cuda_supports_bfloat16", return_value=True):
+            result = host._get_vae_dtype("cuda:0")
+        self.assertEqual(result, torch.bfloat16)
 
 if __name__ == "__main__":
     unittest.main()

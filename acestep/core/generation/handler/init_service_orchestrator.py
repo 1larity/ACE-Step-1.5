@@ -19,13 +19,7 @@ _ROCM_DTYPE_MAP = {
 
 def _cuda_supports_bfloat16() -> bool:
     """Return whether the active CUDA device supports native bfloat16 kernels."""
-    try:
-        if not torch.cuda.is_available():
-            return False
-        major, _ = torch.cuda.get_device_capability()
-        return major >= 8
-    except Exception:
-        return False
+    return gpu_config.cuda_supports_bfloat16()
 
 
 def _resolve_rocm_dtype() -> torch.dtype:
@@ -94,7 +88,7 @@ class InitServiceOrchestratorMixin:
                     "(set ACESTEP_ROCM_DTYPE=bfloat16 or float16 to override)"
                 )
             elif resolved_device == "cuda":
-                if _cuda_supports_bfloat16():
+                if gpu_config.cuda_supports_bfloat16():
                     self.dtype = torch.bfloat16
                 else:
                     self.dtype = torch.float16

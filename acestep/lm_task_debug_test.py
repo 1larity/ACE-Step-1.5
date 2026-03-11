@@ -26,6 +26,13 @@ class LmTaskDebugTests(unittest.TestCase):
         ), patch.dict(os.environ, {"ACESTEP_DEBUG_LM_TASKS": "1"}, clear=False):
             self.assertTrue(is_lm_task_debug_enabled())
 
+    def test_defaults_off_keep_logging_disabled(self) -> None:
+        """Default-off debug constants should keep LM task logging disabled."""
+        with patch("acestep.lm_task_debug.DEBUG_LLM", "OFF"), patch(
+            "acestep.lm_task_debug.DEBUG_EXTERNAL_AI", "OFF"
+        ), patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(is_lm_task_debug_enabled())
+
     def test_external_ai_env_enables_logging(self) -> None:
         """External AI debug env should enable the shared LM task logs."""
         with patch("acestep.lm_task_debug.DEBUG_LLM", "OFF"), patch(
