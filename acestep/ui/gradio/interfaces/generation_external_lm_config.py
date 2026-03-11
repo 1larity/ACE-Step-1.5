@@ -20,8 +20,8 @@ from acestep.text_tasks.external_lm_providers import (
 
 def create_external_lm_config_content(init_params: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build the dedicated External LLM settings tab content."""
-    hydrate_external_lm_env_from_store()
     selected_provider = _resolve_initial_provider(init_params)
+    hydrate_external_lm_env_from_store(selected_provider)
     provider_profile = get_external_provider_profile(selected_provider)
 
     protocol_value = (
@@ -115,15 +115,15 @@ def create_external_lm_config_content(init_params: dict[str, Any] | None = None)
 
 
 def _resolve_initial_provider(init_params: dict[str, Any] | None) -> str:
-    """Resolve initial provider from env or init params."""
-    provider = os.getenv("ACESTEP_EXTERNAL_LM_PROVIDER", "").strip().lower()
-    if provider:
-        return provider
-
+    """Resolve initial provider from init params, env, or active runtime."""
     model_path = (init_params or {}).get("lm_model_path")
     if isinstance(model_path, str) and model_path.startswith("external:"):
         token = model_path.split(":", 2)
         if len(token) >= 3:
             return token[1].strip().lower() or "zai"
+
+    provider = os.getenv("ACESTEP_EXTERNAL_LM_PROVIDER", "").strip().lower()
+    if provider:
+        return provider
 
     return get_active_external_lm_provider()

@@ -184,8 +184,9 @@ class InitServiceLoaderMixin:
 
         if compile_model:
             self._ensure_len_for_compile(self.model, "model")
-            self.model = torch.compile(self.model)
         self._apply_dit_quantization(quantization)
+        if compile_model:
+            self.model = torch.compile(self.model)
 
         silence_latent_path = os.path.join(model_checkpoint_path, "silence_latent.pt")
         if not os.path.exists(silence_latent_path):

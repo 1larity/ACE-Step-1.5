@@ -505,6 +505,62 @@ class InitServiceMixinTests(unittest.TestCase):
         self.assertIsNotNone(host.model)
         self.assertIsNotNone(host.silence_latent)
 
+    def test_load_main_model_quantizes_before_compile(self):
+        """DiT quantization should happen before torch.compile wraps the model."""
+        host = _Host(project_root="K:/fake_root", device="cpu")
+        host.offload_to_cpu = True
+        host.offload_dit_to_cpu = True
+        events: list[str] = []
+
+        class _DummyModel:
+            """Minimal model stub matching loader expectations."""
+
+            def __init__(self):
+                self.config = types.SimpleNamespace(_attn_implementation="sdpa")
+
+            def to(self, *_args, **_kwargs):
+                return self
+
+            def eval(self):
+                return self
+
+        def _compile(model):
+            events.append("compile")
+            return model
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoint_dir = os.path.join(tmpdir, "acestep-v15-turbo")
+            os.makedirs(checkpoint_dir, exist_ok=True)
+            torch.save(
+                torch.zeros(1, 1, 1),
+                os.path.join(checkpoint_dir, "silence_latent.pt"),
+            )
+
+            with patch("torch.cuda.is_available", return_value=False),                     patch(
+                        "transformers.AutoModel.from_pretrained",
+                        return_value=_DummyModel(),
+                    ),                     patch.object(
+                        host,
+                        "_ensure_len_for_compile",
+                        side_effect=lambda *_args: events.append("ensure_len"),
+                    ),                     patch.object(
+                        host,
+                        "_apply_dit_quantization",
+                        side_effect=lambda *_args: events.append("quantize"),
+                    ),                     patch(
+                        "acestep.core.generation.handler.init_service_loader.torch.compile",
+                        side_effect=_compile,
+                    ),                     patch.object(host, "_apply_cuda_bool_argsort_workaround"):
+                host._load_main_model_from_checkpoint(
+                    model_checkpoint_path=checkpoint_dir,
+                    device="cpu",
+                    use_flash_attention=False,
+                    compile_model=True,
+                    quantization="int8_weight_only",
+                )
+
+        self.assertEqual(events, ["ensure_len", "quantize", "compile"])
+
     def test_apply_cuda_bool_argsort_workaround_patches_pack_sequences(self):
         """It monkey-patches dynamic ``pack_sequences`` when CUDA bool argsort is unsupported."""
         host = _Host(project_root="K:/fake_root", device="cuda")

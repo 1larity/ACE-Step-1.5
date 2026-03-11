@@ -94,19 +94,36 @@ def load_all_external_lm_runtime_settings() -> dict[str, dict[str, str]]:
     return provider_settings
 
 
-def hydrate_external_lm_env_from_store() -> bool:
+def hydrate_external_lm_env_from_store(provider: str | None = None) -> bool:
     """Fill missing external LM env vars from persisted settings file.
+
+    Args:
+        provider: Optional provider id to scope hydration to a specific provider.
 
     Returns:
         True when persisted settings were loaded and at least one env var was populated.
     """
-    settings = load_external_lm_runtime_settings()
+    selected_provider = (provider or "").strip().lower()
+    settings = (
+        load_external_lm_runtime_settings_for_provider(selected_provider)
+        if selected_provider
+        else load_external_lm_runtime_settings()
+    )
     if not settings:
         return False
 
     changed = False
+    if selected_provider:
+        if not os.getenv("ACESTEP_EXTERNAL_LM_PROVIDER", "").strip():
+            os.environ["ACESTEP_EXTERNAL_LM_PROVIDER"] = selected_provider
+            changed = True
+    elif not os.getenv("ACESTEP_EXTERNAL_LM_PROVIDER", "").strip():
+        provider_value = settings.get("provider", "")
+        if provider_value:
+            os.environ["ACESTEP_EXTERNAL_LM_PROVIDER"] = provider_value
+            changed = True
+
     mappings = {
-        "provider": "ACESTEP_EXTERNAL_LM_PROVIDER",
         "protocol": "ACESTEP_EXTERNAL_LM_PROTOCOL",
         "model": "ACESTEP_EXTERNAL_LM_MODEL",
         "base_url": "ACESTEP_EXTERNAL_BASE_URL",
@@ -119,8 +136,8 @@ def hydrate_external_lm_env_from_store() -> bool:
             os.environ[env_name] = value
             changed = True
 
-    provider = os.getenv("ACESTEP_EXTERNAL_LM_PROVIDER", "").strip().lower()
-    if provider == "zai":
+    active_provider = (selected_provider or os.getenv("ACESTEP_EXTERNAL_LM_PROVIDER", "").strip().lower())
+    if active_provider == "zai":
         model = os.getenv("ACESTEP_EXTERNAL_LM_MODEL", "").strip()
         base_url = os.getenv("ACESTEP_EXTERNAL_BASE_URL", "").strip()
         if model and not os.getenv("ACESTEP_ZAI_MODEL", "").strip():
