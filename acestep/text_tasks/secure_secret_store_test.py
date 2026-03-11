@@ -66,7 +66,7 @@ class EncryptedSecretStoreTests(unittest.TestCase):
                 resolved = EncryptedSecretStore.resolve_existing_default_path()
                 self.assertEqual(legacy, resolved)
 
-    @patch("acestep.text_tasks.secure_secret_store.subprocess.run")
+    @patch("acestep.text_tasks.secure_secret_store_exec.subprocess.run")
     @patch("acestep.text_tasks.secure_secret_store.os.name", "nt")
     def test_run_openssl_uses_env_passphrase_on_windows(self, run_mock) -> None:
         """Windows OpenSSL calls should avoid ``pass_fds`` and use child-only env."""

@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .secure_secret_store_exec import OPENSSL_PASSPHRASE_ENV, sanitize_error
+from .secure_secret_store_exec import (
+    run_openssl_posix,
+    run_openssl_windows,
+    sanitize_error,
+)
 from .secure_secret_store_paths import default_secret_path, legacy_secret_path
 
 
@@ -113,64 +116,18 @@ class EncryptedSecretStore:
         args: list[str],
         passphrase: str,
         stdin_bytes: bytes | None,
-    ) -> subprocess.CompletedProcess[bytes]:
-        """Execute OpenSSL with a platform-safe passphrase handoff."""
+    ):
+        """Execute OpenSSL via the shared platform-safe helpers."""
         if os.name == "nt":
-            return self._run_openssl_windows(
+            return run_openssl_windows(
+                openssl_path=self.openssl_path,
                 args=args,
                 passphrase=passphrase,
                 stdin_bytes=stdin_bytes,
             )
-        return self._run_openssl_posix(
+        return run_openssl_posix(
+            openssl_path=self.openssl_path,
             args=args,
             passphrase=passphrase,
             stdin_bytes=stdin_bytes,
         )
-
-    def _run_openssl_windows(
-        self,
-        *,
-        args: list[str],
-        passphrase: str,
-        stdin_bytes: bytes | None,
-    ) -> subprocess.CompletedProcess[bytes]:
-        """Execute OpenSSL on Windows without unsupported ``pass_fds`` usage."""
-        env = os.environ.copy()
-        env[OPENSSL_PASSPHRASE_ENV] = passphrase
-        cmd = [self.openssl_path, *args, "-pass", f"env:{OPENSSL_PASSPHRASE_ENV}"]
-        return subprocess.run(
-            cmd,
-            input=stdin_bytes,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env,
-            check=False,
-        )
-
-    def _run_openssl_posix(
-        self,
-        *,
-        args: list[str],
-        passphrase: str,
-        stdin_bytes: bytes | None,
-    ) -> subprocess.CompletedProcess[bytes]:
-        """Execute OpenSSL on POSIX via a private passphrase file descriptor."""
-        pass_r, pass_w = os.pipe()
-        try:
-            os.write(pass_w, passphrase.encode("utf-8"))
-        finally:
-            os.close(pass_w)
-
-        cmd = [self.openssl_path, *args, "-pass", f"fd:{pass_r}"]
-        try:
-            result = subprocess.run(
-                cmd,
-                input=stdin_bytes,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                pass_fds=(pass_r,),
-                check=False,
-            )
-        finally:
-            os.close(pass_r)
-        return result
