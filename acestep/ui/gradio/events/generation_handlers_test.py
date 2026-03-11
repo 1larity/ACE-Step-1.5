@@ -1248,8 +1248,9 @@ class GenerationHandlersTests(unittest.TestCase):
         self.assertEqual(1, format_sample_mock.call_count)
         info_mock.assert_called()
 
+    @patch("acestep.ui.gradio.events.generation.llm_format_actions.is_external_lm_active", return_value=False)
     @patch("acestep.ui.gradio.events.generation.llm_format_actions.gr.Warning")
-    def test_handle_generate_lyrics_from_caption_requires_lm(self, warning_mock):
+    def test_handle_generate_lyrics_from_caption_requires_lm(self, warning_mock, _external_active_mock):
         """Generate-lyrics action should show LM-not-initialized when no LM/external runtime."""
         llm_handler = SimpleNamespace(llm_initialized=False)
 
@@ -1368,14 +1369,14 @@ class LoadRandomExampleExternalLmTests(unittest.TestCase):
 
     @patch("acestep.ui.gradio.events.generation.metadata_loading.gr.Warning")
     @patch("acestep.ui.gradio.events.generation.metadata_loading.gr.Info")
-    @patch("acestep.ui.gradio.events.generation.metadata_loading.random.choice")
+    @patch("acestep.ui.gradio.events.generation.metadata_loading.choose_random_example_file")
     @patch("acestep.ui.gradio.events.generation.metadata_loading._get_project_root")
     @patch("acestep.ui.gradio.events.generation.metadata_loading.is_external_lm_active", return_value=True)
     def test_load_random_example_keeps_think_true_when_external_lm_active(
         self,
         _external_active_mock,
         get_project_root_mock,
-        random_choice_mock,
+        choose_random_example_file_mock,
         info_mock,
         warning_mock,
     ):
@@ -1401,7 +1402,7 @@ class LoadRandomExampleExternalLmTests(unittest.TestCase):
                 )
 
             get_project_root_mock.return_value = tmpdir
-            random_choice_mock.return_value = sample_file
+            choose_random_example_file_mock.return_value = sample_file
             result = generation_handlers.load_random_example("text2music", llm_handler)
 
         self.assertTrue(result[2], "think should remain enabled under external LM mode")

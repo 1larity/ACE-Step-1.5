@@ -53,28 +53,30 @@ def _unique_in_order(values: list[str]) -> list[str]:
 
 def extract_arrangement_tags(caption: str, lyrics: str) -> list[str]:
     """Extract arrangement tags from caption text and lyrics section headers."""
-    combined = f"{caption or ''}\n{lyrics or ''}"
+    headers = _SECTION_TAG_PATTERN.findall(lyrics or "")
+    search_space = f"{caption or ''}\n" + "\n".join(headers)
     extracted: list[str] = []
 
-    for header in _SECTION_TAG_PATTERN.findall(lyrics or ""):
+    for header in headers:
         for name, pattern in _ARRANGEMENT_RULES:
             if pattern.search(header):
                 extracted.append(name)
                 break
 
     for name, pattern in _ARRANGEMENT_RULES:
-        if pattern.search(combined):
+        if pattern.search(search_space):
             extracted.append(name)
 
     return _unique_in_order(extracted)
 
 
 def extract_instrument_tags(caption: str, lyrics: str) -> list[str]:
-    """Extract instrument tags from caption/lyrics text."""
-    combined = f"{caption or ''}\n{lyrics or ''}"
+    """Extract instrument tags from caption text and lyrics section headers."""
+    headers = _SECTION_TAG_PATTERN.findall(lyrics or "")
+    search_space = f"{caption or ''}\n" + "\n".join(headers)
     extracted: list[str] = []
     for name, pattern in _INSTRUMENT_RULES:
-        if pattern.search(combined):
+        if pattern.search(search_space):
             extracted.append(name)
     return extracted
 

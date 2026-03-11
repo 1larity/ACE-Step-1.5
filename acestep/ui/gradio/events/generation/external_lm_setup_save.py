@@ -52,9 +52,10 @@ def save_external_lm_settings(
             "https://api.z.ai/api/coding/paas/v4/chat/completions."
         )
 
+    _update_session_api_key_env(profile.api_key_env, api_key_value, status_lines)
+    _update_passphrase_env(passphrase_value, status_lines)
+
     if api_key_value:
-        os.environ[profile.api_key_env] = api_key_value
-        status_lines.append(f"Session API key set via env: {profile.api_key_env}")
         _handle_optional_encrypted_storage(
             profile=profile,
             provider_id=provider_id,
@@ -74,7 +75,7 @@ def save_external_lm_settings(
             status_lines=status_lines,
         )
 
-    _apply_runtime_env(provider_id, protocol_value, model_value, base_url_value)
+    _apply_runtime_env(provider_id, protocol_value, model_value, base_url_value, status_lines)
     try:
         persisted_path = save_external_lm_runtime_settings(
             provider=provider_id,
@@ -149,11 +150,35 @@ def _validate_existing_credentials(
         raise ExternalLmSetupSaveError(f"{profile.label} API key is required: {exc}") from exc
 
 
+def _update_session_api_key_env(
+    api_key_env: str,
+    api_key_value: str,
+    status_lines: list[str],
+) -> None:
+    """Update the current-session API key environment variable."""
+    if api_key_value:
+        os.environ[api_key_env] = api_key_value
+        status_lines.append(f"Session API key set via env: {api_key_env}")
+        return
+    if os.environ.pop(api_key_env, None) is not None:
+        status_lines.append(f"Cleared session API key env: {api_key_env}")
+
+
+def _update_passphrase_env(passphrase_value: str, status_lines: list[str]) -> None:
+    """Update or clear the current-session encrypted-store passphrase."""
+    if passphrase_value:
+        os.environ["ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE"] = passphrase_value
+        return
+    if os.environ.pop("ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE", None) is not None:
+        status_lines.append("Cleared session encrypted-store passphrase.")
+
+
 def _apply_runtime_env(
     provider_id: str,
     protocol_value: str,
     model_value: str,
     base_url_value: str,
+    status_lines: list[str],
 ) -> None:
     """Apply active external LM runtime environment variables."""
     os.environ["ACESTEP_EXTERNAL_LM_PROVIDER"] = provider_id
@@ -165,3 +190,11 @@ def _apply_runtime_env(
     if provider_id == "zai":
         os.environ["ACESTEP_ZAI_MODEL"] = model_value
         os.environ["ACESTEP_ZAI_BASE_URL"] = base_url_value
+    else:
+        cleared = []
+        if os.environ.pop("ACESTEP_ZAI_MODEL", None) is not None:
+            cleared.append("ACESTEP_ZAI_MODEL")
+        if os.environ.pop("ACESTEP_ZAI_BASE_URL", None) is not None:
+            cleared.append("ACESTEP_ZAI_BASE_URL")
+        if cleared:
+            status_lines.append("Cleared stale Z.ai runtime env: " + ", ".join(cleared))

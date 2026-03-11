@@ -67,7 +67,7 @@ class TrainingPresetMixin:
             offload_dit_to_cpu=False,
             quantization=None,
             prefer_source=params.get("prefer_source"),
-            use_mlx_dit=params.get("use_mlx_dit", True),
+            use_mlx_dit=False,
         )
         if ok:
             return f"Switched to CPU stability preset (quantization disabled).\n{status}", True

@@ -35,6 +35,13 @@ class EnhancementScaffoldTests(unittest.TestCase):
         )
         self.assertEqual("", directives)
 
+    def test_extract_tags_ignore_plain_lyric_words_without_headers(self) -> None:
+        """Plain lyric lines should not be promoted into arrangement or instrument tags."""
+        caption = "dreamy and emotional"
+        lyrics = "we drop into moonlight with drums in our chest"
+        self.assertEqual([], extract_arrangement_tags(caption=caption, lyrics=lyrics))
+        self.assertEqual([], extract_instrument_tags(caption=caption, lyrics=lyrics))
+
     def test_build_preservation_directives_contains_constraints(self) -> None:
         """Directive block should include preserve lines and non-contradiction rule."""
         directives = build_preservation_directives(

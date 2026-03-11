@@ -143,6 +143,8 @@ if exist "%~dp0python_embedded\python.exe" (
 
     REM Build command with optional parameters
     set "PYTHON_EXE=%~dp0python_embedded\python.exe"
+    call :EnsureLegacyNvidiaTorchCompat
+    if !ERRORLEVEL! NEQ 0 exit /b !ERRORLEVEL!
     set "SCRIPT_PATH=%~dp0acestep\acestep_v15_pipeline.py"
     set "CMD=--port %PORT% --server-name %SERVER_NAME% --language %LANGUAGE%"
     if not "%SHARE%"=="" set "CMD=!CMD! %SHARE%"
@@ -296,7 +298,9 @@ if exist "%~dp0python_embedded\python.exe" (
         echo.
     )
 
+    set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
     call :EnsureLegacyNvidiaTorchCompat
+    if !ERRORLEVEL! NEQ 0 exit /b !ERRORLEVEL!
 
     echo Starting ACE-Step Gradio UI...
     echo.
@@ -349,25 +353,32 @@ REM ==================== Helper Functions ====================
 :EnsureLegacyNvidiaTorchCompat
 REM Auto-fix PyTorch for legacy NVIDIA GPUs (e.g., Pascal sm_61 on Quadro P1000)
 if /i "%ACESTEP_SKIP_LEGACY_TORCH_FIX%"=="true" exit /b 0
-if not exist "%~dp0.venv\Scripts\python.exe" exit /b 0
+set "LEGACY_PYTHON=%PYTHON_EXE%"
+if not defined LEGACY_PYTHON if defined PYTHON set "LEGACY_PYTHON=%PYTHON%"
+if not defined LEGACY_PYTHON set "LEGACY_PYTHON=%~dp0.venv\Scripts\python.exe"
+if not exist "!LEGACY_PYTHON!" exit /b 0
 
 pushd "%~dp0"
-".venv\Scripts\python.exe" -c "import os,sys; sys.path.insert(0, os.getcwd()); from acestep.launcher_compat import legacy_torch_fix_probe_exit_code; raise SystemExit(legacy_torch_fix_probe_exit_code())" >nul 2>&1
+"!LEGACY_PYTHON!" -c "import os,sys; sys.path.insert(0, os.getcwd()); from acestep.launcher_compat import legacy_torch_fix_probe_exit_code; raise SystemExit(legacy_torch_fix_probe_exit_code())" >nul 2>&1
 set "LEGACY_CHECK_EXIT=!ERRORLEVEL!"
 
-if not "!LEGACY_CHECK_EXIT!"=="42" (
+if "!LEGACY_CHECK_EXIT!"=="0" (
     popd
     exit /b 0
+)
+if not "!LEGACY_CHECK_EXIT!"=="42" (
+    popd
+    exit /b !LEGACY_CHECK_EXIT!
 )
 
 echo [Compatibility] Legacy NVIDIA GPU detected with unsupported torch arch.
 echo [Compatibility] Installing CUDA 12.1 torch build with sm_61 support...
-uv pip install --python .venv\Scripts\python.exe --force-reinstall --index-url https://download.pytorch.org/whl/cu121 torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121
+"!LEGACY_PYTHON!" -m pip install --force-reinstall --index-url https://download.pytorch.org/whl/cu121 torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121
 if !ERRORLEVEL! EQU 0 (
     echo [Compatibility] Legacy torch install complete.
     REM Keep a legacy-compatible torchao so INT8 quantization remains available
     REM on low-VRAM Pascal/Quadro GPUs.
-    uv pip install --python .venv\Scripts\python.exe --force-reinstall torchao==0.11.0 >nul 2>&1
+    "!LEGACY_PYTHON!" -m pip install --force-reinstall torchao==0.11.0 >nul 2>&1
     if !ERRORLEVEL! EQU 0 (
         echo [Compatibility] Installed torchao==0.11.0 (legacy-compatible).
     ) else (
@@ -376,7 +387,7 @@ if !ERRORLEVEL! EQU 0 (
 ) else (
     echo [Compatibility] Warning: automatic legacy torch install failed.
     echo [Compatibility] Run manually:
-    echo   uv pip install --python .venv\Scripts\python.exe --force-reinstall --index-url https://download.pytorch.org/whl/cu121 torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121
+    echo   "!LEGACY_PYTHON!" -m pip install --force-reinstall --index-url https://download.pytorch.org/whl/cu121 torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121
 )
 popd
 exit /b 0

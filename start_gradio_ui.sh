@@ -284,6 +284,8 @@ _ensure_legacy_nvidia_torch_compat() {
     [[ ! -x "$SCRIPT_DIR/.venv/bin/python" ]] && return 0
 
     local compat_status
+    local install_status
+    local torchao_status
     if (cd "$SCRIPT_DIR" && .venv/bin/python -c \
         "import os, sys; sys.path.insert(0, os.getcwd()); from acestep.launcher_compat import legacy_torch_fix_probe_exit_code; raise SystemExit(legacy_torch_fix_probe_exit_code())"); then
         return 0
@@ -292,7 +294,8 @@ _ensure_legacy_nvidia_torch_compat() {
     fi
 
     if [[ "$compat_status" -ne 42 ]]; then
-        return 0
+        echo "[Compatibility] Error: legacy torch compatibility probe failed with exit code $compat_status." >&2
+        return "$compat_status"
     fi
     RUN_UV_NO_SYNC=1
 
@@ -306,12 +309,16 @@ _ensure_legacy_nvidia_torch_compat() {
         if (cd "$SCRIPT_DIR" && uv pip install --python .venv/bin/python --force-reinstall torchao==0.11.0 >/dev/null 2>&1); then
             echo "[Compatibility] Installed torchao==0.11.0 (legacy-compatible)."
         else
-            echo "[Compatibility] Warning: failed to install torchao==0.11.0. Quantization may be unavailable."
+            torchao_status=$?
+            echo "[Compatibility] Error: failed to install torchao==0.11.0 (exit code $torchao_status)." >&2
+            return "$torchao_status"
         fi
     else
-        echo "[Compatibility] Warning: failed to install legacy torch automatically."
+        install_status=$?
+        echo "[Compatibility] Error: failed to install legacy torch automatically (exit code $install_status)." >&2
         echo "[Compatibility] Run manually:"
         echo "  uv pip install --python .venv/bin/python --force-reinstall --index-url https://download.pytorch.org/whl/cu121 torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121"
+        return "$install_status"
     fi
 }
 
@@ -349,7 +356,7 @@ if [[ ! -d "$SCRIPT_DIR/.venv" ]]; then
     echo
 fi
 
-_ensure_legacy_nvidia_torch_compat
+_ensure_legacy_nvidia_torch_compat || exit $?
 
 UV_RUN_FLAGS=()
 if [[ "$RUN_UV_NO_SYNC" == "1" ]]; then

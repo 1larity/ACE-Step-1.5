@@ -22,6 +22,10 @@ class LauncherLegacyTorchFixTests(unittest.TestCase):
         self.assertIn("ACESTEP_SKIP_LEGACY_TORCH_FIX", content)
         self.assertIn("legacy_torch_fix_probe_exit_code", content)
         self.assertIn("torch==2.5.1+cu121", content)
+        self.assertIn('return "$compat_status"', content)
+        self.assertIn('return "$install_status"', content)
+        self.assertIn('return "$compat_status"', content)
+        self.assertIn('return "$install_status"', content)
 
     def test_linux_api_launcher_calls_shared_probe(self) -> None:
         """Linux API launcher should call shared Python compatibility probe."""
@@ -36,6 +40,8 @@ class LauncherLegacyTorchFixTests(unittest.TestCase):
         self.assertIn('if /i "%ACESTEP_SKIP_LEGACY_TORCH_FIX%"=="true"', content)
         self.assertIn("legacy_torch_fix_probe_exit_code", content)
         self.assertIn("torch==2.5.1+cu121", content)
+        self.assertGreaterEqual(content.count("call :EnsureLegacyNvidiaTorchCompat"), 2)
+        self.assertIn('"!LEGACY_PYTHON!" -m pip install --force-reinstall', content)
 
     def test_windows_api_launcher_calls_shared_probe(self) -> None:
         """Windows API launcher should call shared Python compatibility probe."""

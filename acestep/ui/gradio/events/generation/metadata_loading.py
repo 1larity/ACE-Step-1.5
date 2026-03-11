@@ -6,10 +6,8 @@ and sampling random examples from the examples directory.
 
 from __future__ import annotations
 
-import glob
 import json
 import os
-import random
 
 import gradio as gr
 
@@ -18,7 +16,7 @@ from acestep.inference import understand_music
 from acestep.text_tasks.external_lm_mode import is_external_lm_active
 from acestep.ui.gradio.i18n import t
 
-from .metadata_loading_examples import get_project_root_from, load_json_file
+from .metadata_loading_examples import choose_random_example_file, get_project_root_from, load_json_file
 from .metadata_loading_parsing import clamp_batch_size, normalize_optional_text, parse_optional_float, parse_optional_int
 from .validation import clamp_duration_to_gpu_limit
 
@@ -78,14 +76,8 @@ def _get_project_root() -> str:
 
 
 def _choose_random_example_file(task_type: str) -> str:
-    project_root = _get_project_root()
-    examples_dir = os.path.join(project_root, "examples", task_type)
-    if not os.path.exists(examples_dir):
-        raise FileNotFoundError(f"Examples directory not found: examples/{task_type}/")
-    json_files = glob.glob(os.path.join(examples_dir, "*.json"))
-    if not json_files:
-        raise FileNotFoundError(f"No JSON files found in examples/{task_type}/")
-    return random.choice(json_files)
+    """Return a random example JSON path for a task type."""
+    return choose_random_example_file(project_root=_get_project_root(), task_type=task_type)
 
 
 def load_random_example(task_type: str, llm_handler=None):

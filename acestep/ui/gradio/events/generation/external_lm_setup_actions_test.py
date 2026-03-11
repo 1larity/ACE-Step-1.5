@@ -359,6 +359,82 @@ class ExternalLmSetupActionsTests(unittest.TestCase):
         self.assertIn("External LM mode enabled: yes", status)
         self.assertIn("UI model differs from saved runtime model", status)
 
+    @patch("acestep.ui.gradio.events.generation.external_lm_setup_actions.gr.Info")
+    @patch(
+        "acestep.ui.gradio.events.generation.external_lm_setup_actions.save_external_lm_runtime_settings"
+    )
+    @patch(
+        "acestep.ui.gradio.events.generation.external_lm_setup_actions.resolve_external_api_key_for_runtime",
+        return_value="stored-secret",
+    )
+    def test_save_settings_clears_stale_session_key_and_passphrase_when_inputs_blank(
+        self,
+        _resolve_key_mock,
+        save_runtime_settings_mock,
+        _info_mock,
+    ) -> None:
+        """Saving with blank inputs should clear stale session key and passphrase env vars."""
+        save_runtime_settings_mock.return_value = Path("/tmp/external_lm_runtime.json")
+
+        with patch.dict(
+            "os.environ",
+            {
+                "ACESTEP_OPENAI_API_KEY": "stale-key",
+                "ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE": "stale-pass",
+            },
+            clear=True,
+        ):
+            status, _, _, _ = save_external_lm_settings_from_ui(
+                provider="openai",
+                protocol="openai_chat",
+                model="gpt-4o-mini",
+                base_url="https://api.openai.com/v1/chat/completions",
+                api_key="",
+                store_passphrase="",
+                save_passphrase_to_keyring=False,
+            )
+
+            self.assertIsNone(os.getenv("ACESTEP_OPENAI_API_KEY"))
+            self.assertIsNone(os.getenv("ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE"))
+
+        self.assertIn("Cleared session API key env: ACESTEP_OPENAI_API_KEY", status)
+        self.assertIn("Cleared session encrypted-store passphrase.", status)
+
+    @patch("acestep.ui.gradio.events.generation.external_lm_setup_actions.gr.Info")
+    @patch(
+        "acestep.ui.gradio.events.generation.external_lm_setup_actions.save_external_lm_runtime_settings"
+    )
+    def test_save_settings_clears_stale_zai_runtime_env_when_switching_provider(
+        self,
+        save_runtime_settings_mock,
+        _info_mock,
+    ) -> None:
+        """Saving a non-Z.ai provider should clear stale Z.ai runtime model/base URL env vars."""
+        save_runtime_settings_mock.return_value = Path("/tmp/external_lm_runtime.json")
+
+        with patch.dict(
+            "os.environ",
+            {
+                "ACESTEP_ZAI_MODEL": "glm-5",
+                "ACESTEP_ZAI_BASE_URL": "https://api.z.ai/api/paas/v4/chat/completions",
+            },
+            clear=True,
+        ):
+            status, _, _, _ = save_external_lm_settings_from_ui(
+                provider="ollama",
+                protocol="openai_chat",
+                model="qwen3:8b",
+                base_url="http://127.0.0.1:11434/v1/chat/completions",
+                api_key="",
+                store_passphrase="",
+                save_passphrase_to_keyring=False,
+            )
+
+            self.assertIsNone(os.getenv("ACESTEP_ZAI_MODEL"))
+            self.assertIsNone(os.getenv("ACESTEP_ZAI_BASE_URL"))
+
+        self.assertIn("Cleared stale Z.ai runtime env", status)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from loguru import logger
+
 
 EXTERNAL_AI_SECRET_SERVICE = "acestep.external_ai"
 EXTERNAL_AI_SECRET_USERNAME = "external_ai_store_passphrase"
@@ -21,9 +23,13 @@ def resolve_runtime_passphrase() -> str | None:
 
     file_path_raw = os.getenv("ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE_FILE", "").strip()
     if file_path_raw:
-        text = Path(file_path_raw).expanduser().read_text(encoding="utf-8").strip()
-        if text:
-            return text
+        try:
+            text = Path(file_path_raw).expanduser().read_text(encoding="utf-8").strip()
+        except (FileNotFoundError, PermissionError, UnicodeDecodeError, OSError) as exc:
+            logger.debug("Ignoring external AI passphrase file {}: {}", file_path_raw, exc)
+        else:
+            if text:
+                return text
 
     service = os.getenv(
         "ACESTEP_EXTERNAL_AI_SECRET_SERVICE",
