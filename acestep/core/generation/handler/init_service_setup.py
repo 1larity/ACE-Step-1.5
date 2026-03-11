@@ -79,6 +79,22 @@ class InitServiceSetupMixin:
                 logger.warning("[initialize_service] Quantization (torchao) is not supported on MPS; disabling.")
                 normalized_quantization = None
 
+        if device == "cuda" and normalized_compile and normalized_quantization is not None:
+            try:
+                if torch.cuda.is_available():
+                    major, _ = torch.cuda.get_device_capability(0)
+                    if major < 7:
+                        logger.info(
+                            "[initialize_service] Pre-Ampere CUDA + quantization detected: "
+                            "disabling torch.compile for stability."
+                        )
+                        normalized_compile = False
+            except Exception:
+                logger.warning(
+                    "[initialize_service] Failed to probe CUDA capability for compile/quantization "
+                    "stability guard; keeping compile setting unchanged."
+                )
+
         return normalized_compile, normalized_quantization, mlx_compile_requested
 
     @staticmethod

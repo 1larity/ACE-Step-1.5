@@ -250,5 +250,64 @@ class InitServiceWrapperDeviceResolutionTests(unittest.TestCase):
         )
 
 
+class InitServiceWrapperQuantizationTests(unittest.TestCase):
+    """Verify pre-Ampere quantization selection in Gradio init wrapper."""
+
+    def _import_module(self):
+        """Import service_init lazily to avoid heavy transitive imports."""
+        from acestep.ui.gradio.events.generation import service_init
+        return service_init
+
+    @patch("acestep.ui.gradio.events.generation.service_init.torch.cuda.get_device_capability", return_value=(6, 1))
+    @patch("acestep.ui.gradio.events.generation.service_init.torch.cuda.is_available", return_value=True)
+    @patch("acestep.ui.gradio.events.generation.service_init.get_global_gpu_config")
+    def test_pre_ampere_uses_int8_weight_only(
+        self,
+        mock_gpu_config,
+        _mock_cuda_available,
+        _mock_device_capability,
+    ):
+        """Pre-Ampere CUDA should keep int8 weight-only quantization in init wrapper."""
+        module = self._import_module()
+
+        mock_gpu_config.return_value = MagicMock(
+            available_lm_models=[],
+            lm_backend_restriction=None,
+            tier="tier1",
+            gpu_memory_gb=3.94,
+            max_duration_with_lm=240,
+            max_duration_without_lm=360,
+            max_batch_size_with_lm=1,
+            max_batch_size_without_lm=1,
+        )
+
+        dit_handler = MagicMock()
+        dit_handler.initialize_service.return_value = ("ok", True)
+        dit_handler.model = MagicMock()
+        dit_handler.is_turbo_model.return_value = True
+
+        llm_handler = MagicMock()
+        llm_handler.llm_initialized = False
+
+        module.init_service_wrapper(
+            dit_handler,
+            llm_handler,
+            "/any/path/checkpoints",
+            "acestep-v15-turbo",
+            "cuda",
+            False,
+            None,
+            "pt",
+            use_flash_attention=False,
+            offload_to_cpu=True,
+            offload_dit_to_cpu=True,
+            compile_model=True,
+            quantization=True,
+        )
+
+        _, kwargs = dit_handler.initialize_service.call_args
+        self.assertEqual(kwargs["quantization"], "int8_weight_only")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -310,14 +310,6 @@ def main():
     _default_quantization = None
     if gpu_config.quantization_default and not _is_mac:
         _default_quantization = "int8_weight_only"
-        try:
-            import torch
-            if torch.cuda.is_available():
-                major, _ = torch.cuda.get_device_capability(0)
-                if major < 7:
-                    _default_quantization = "w8a8_dynamic"
-        except Exception:
-            pass
     parser.add_argument(
         "--quantization",
         type=parse_quantization_arg,

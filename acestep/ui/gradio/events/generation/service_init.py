@@ -45,9 +45,9 @@ def init_service_wrapper(
             if torch.cuda.is_available():
                 major, _ = torch.cuda.get_device_capability(0)
                 if major < 7:
-                    quant_value = "w8a8_dynamic"
+                    quant_value = "int8_weight_only"
                     logger.info(
-                        "Pre-Ampere CUDA detected: using w8a8_dynamic quantization for stability"
+                        "Pre-Ampere CUDA detected: using int8_weight_only quantization for stability"
                     )
         except Exception:
             pass

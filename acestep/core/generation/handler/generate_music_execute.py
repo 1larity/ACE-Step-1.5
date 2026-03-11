@@ -57,11 +57,11 @@ class GenerateMusicExecuteMixin:
                 max_progress = next_value
             progress(next_value, desc=desc or progress_desc)
 
-        _report_progress(0.10, desc=progress_desc)
+        _report_progress(0.30, desc=progress_desc)
 
         stage_ranges = {
-            "encoding": (0.10, 0.30),
-            "diffusion": (0.30, 0.79),
+            "encoding": (0.30, 0.45),
+            "diffusion": (0.45, 0.79),
         }
         runtime_progress_setter = getattr(self, "_set_runtime_progress_callback", None)
 
@@ -151,7 +151,7 @@ class GenerateMusicExecuteMixin:
                 _drain_progress_events()
                 elapsed = time.monotonic() - start_wait_ts
                 est_frac = min(0.999, elapsed / expected_sec) if expected_sec > 0 else 0.0
-                _report_progress(0.30 + (0.79 - 0.30) * est_frac, desc=progress_desc)
+                _report_progress(0.45 + (0.79 - 0.45) * est_frac, desc=progress_desc)
                 if time.monotonic() >= deadline and gen_thread.is_alive():
                     logger.error(
                         f"[generate_music] service_generate exceeded {_DEFAULT_GENERATION_TIMEOUT}s "

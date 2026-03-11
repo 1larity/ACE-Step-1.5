@@ -229,14 +229,30 @@ class InitServiceMixinTests(unittest.TestCase):
         self.assertIsNone(quantization)
         self.assertTrue(mlx_compile_requested)
 
-    def test_configure_initialize_runtime_keeps_settings_on_cuda(self):
-        """It leaves compile and quantization flags unchanged for CUDA backends."""
+    def test_configure_initialize_runtime_disables_compile_for_pre_ampere_quantized_cuda(self):
+        """It disables compile for pre-Ampere CUDA when quantization is enabled."""
         host = _Host(project_root="K:/fake_root", device="cuda")
-        compile_model, quantization, mlx_compile_requested = host._configure_initialize_runtime(
-            device="cuda",
-            compile_model=True,
-            quantization="int8_weight_only",
-        )
+        with patch("torch.cuda.is_available", return_value=True):
+            with patch("torch.cuda.get_device_capability", return_value=(6, 1)):
+                compile_model, quantization, mlx_compile_requested = host._configure_initialize_runtime(
+                    device="cuda",
+                    compile_model=True,
+                    quantization="int8_weight_only",
+                )
+        self.assertFalse(compile_model)
+        self.assertEqual(quantization, "int8_weight_only")
+        self.assertFalse(mlx_compile_requested)
+
+    def test_configure_initialize_runtime_keeps_settings_on_ampere_quantized_cuda(self):
+        """It keeps compile enabled for Ampere+ CUDA when quantization is enabled."""
+        host = _Host(project_root="K:/fake_root", device="cuda")
+        with patch("torch.cuda.is_available", return_value=True):
+            with patch("torch.cuda.get_device_capability", return_value=(8, 0)):
+                compile_model, quantization, mlx_compile_requested = host._configure_initialize_runtime(
+                    device="cuda",
+                    compile_model=True,
+                    quantization="int8_weight_only",
+                )
         self.assertTrue(compile_model)
         self.assertEqual(quantization, "int8_weight_only")
         self.assertFalse(mlx_compile_requested)
