@@ -13,6 +13,33 @@ class LlmInferenceDebugLoggingTests(unittest.TestCase):
 
     @patch("acestep.llm_inference.logger.debug")
     @patch("acestep.llm_inference.is_lm_task_debug_enabled", return_value=True)
+    def test_unload_logs_safe_debug_message_without_missing_locals(
+        self,
+        _debug_enabled_mock,
+        logger_debug_mock,
+    ) -> None:
+        """Unload should not reference generation-only locals when LM debug is enabled."""
+        handler = LLMHandler.__new__(LLMHandler)
+        handler.llm_backend = "pt"
+        handler.llm_initialized = True
+        handler.llm = object()
+        handler.llm_tokenizer = object()
+        handler.constrained_processor = None
+        handler._hf_model_for_scoring = None
+        handler._mlx_model = None
+        handler._mlx_model_path = None
+
+        with patch("acestep.llm_inference.torch.cuda.is_available", return_value=False),                 patch("acestep.llm_inference.torch.backends.mps.is_available", return_value=False, create=True),                 patch.object(LLMHandler, "_cleanup_torch_distributed_state"):
+            LLMHandler.unload(handler)
+
+        logger_debug_mock.assert_any_call(
+            "LM unload backend={} initialized={}",
+            "pt",
+            True,
+        )
+
+    @patch("acestep.llm_inference.logger.debug")
+    @patch("acestep.llm_inference.is_lm_task_debug_enabled", return_value=True)
     def test_generate_from_formatted_prompt_logs_prompt_and_output(
         self,
         _debug_enabled_mock,

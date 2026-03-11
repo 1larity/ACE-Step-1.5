@@ -88,12 +88,9 @@ class LLMHandler:
         """Release LM weights/tokenizer and clear caches to free memory."""
         if is_lm_task_debug_enabled():
             logger.debug(
-                "LM task prompt backend={} phase={} constrained={} stop_at_reasoning={} prompt={}",
+                "LM unload backend={} initialized={}",
                 self.llm_backend or "pt",
-                generation_phase,
-                use_constrained_decoding,
-                stop_at_reasoning,
-                formatted_prompt,
+                self.llm_initialized,
             )
 
         try:
