@@ -71,12 +71,12 @@ The Gradio interface is organized as follows:
 
 ## External LLM Configuration
 
-ACE-Step now includes a dedicated **External LLM** tab beside **Service Config** inside the
-Settings accordion.
+ACE-Step now includes a dedicated **External LLM** area within the **Settings** accordion, beside
+**Service Configuration**.
 
 For a user-focused setup walkthrough, provider notes, and plain-language feature guide, see [External AI Setup and Usage Guide](EXTERNAL_AI_GUIDE.md).
 
-### External LLM Tab
+### External LLM Accordion Area
 
 | Setting | Description |
 |---------|-------------|
@@ -103,7 +103,8 @@ For a user-focused setup walkthrough, provider notes, and plain-language feature
 - The **5Hz LM Model Path** dropdown shows local 5Hz models plus the currently configured external entry (for example `external:zai:glm-5`).
 - Selecting an external entry activates external runtime mode.
 - Switching back to a local 5Hz model deactivates external mode, but keeps your external provider configuration available for re-selection.
-- When external mode is active, **Create Sample**, **Enhance Caption/Lyrics**, **Generate Lyrics**, and **Think/CoT metadata tasks** can run through the external provider without requiring local 5Hz LM initialization.
+- When external mode is active, the intended behavior is that **Create Sample**, **Enhance Caption/Lyrics**, **Generate Lyrics**, and **Think/CoT metadata tasks** can route through the external provider instead of the local 5Hz LM.
+- Current limitation: some of those workflows still require local 5Hz LM initialization today. In particular, **Create Sample** still checks `llm_handler.llm_initialized` in both the Gradio handler path and `create_sample()`, and other LM-assisted flows in this group may still depend on local initialization until the remaining routing is completed.
 
 ### Performance Options
 

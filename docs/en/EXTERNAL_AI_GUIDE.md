@@ -100,6 +100,8 @@ When an external model is selected in **Service Configuration**:
 - the local 5Hz LM is not required for those text tasks
 - **Initialize 5Hz LM** is automatically turned off
 
+Current limitation: **Create Sample** still requires the local 5Hz LM to be initialized. Today both the Gradio click handler check and the `create_sample()` function enforce `llm_handler.llm_initialized`, so external models do not yet cover **Create Sample** until that routing is implemented.
+
 When you switch back to a local 5Hz LM model:
 
 - external settings stay saved
