@@ -8,6 +8,7 @@ backward-compatible Gradio UI support.
 
 import math
 import os
+import re
 import tempfile
 from typing import Optional, Union, List, Dict, Any, Tuple
 from dataclasses import dataclass, field, asdict
@@ -16,9 +17,26 @@ import torch
 
 
 from acestep.audio_utils import AudioSaver, apply_fade, generate_uuid_from_params, normalize_audio, get_lora_weights_hash
+from acestep.text_tasks.caption_vocal_presence import ensure_caption_has_global_vocal_presence
 
 # HuggingFace Space environment detection
 IS_HUGGINGFACE_SPACE = os.environ.get("SPACE_ID") is not None
+
+_LYRIC_TAG_LINE_PATTERN = re.compile(r"^\s*\[[^\]]+\]\s*$")
+_LYRIC_WORD_PATTERN = re.compile(r"[A-Za-z0-9']+")
+_LYRIC_VOWEL_GROUP_PATTERN = re.compile(r"[aeiouy]+", re.IGNORECASE)
+_LYRIC_COMMA_LINEBREAK_PATTERN = re.compile(r"\s*,\s*")
+_LYRIC_DENSITY_WORDS_PER_BAR = 6.0
+_LYRIC_DENSITY_MIN_WORD_BUDGET = 16
+_LYRIC_DENSITY_MAX_WORD_BUDGET = 480
+_LYRIC_DENSITY_SYLLABLES_PER_BEAT = 1.2
+_LYRIC_DENSITY_VOCAL_ACTIVITY_RATIO = 0.55
+_LYRIC_DENSITY_SYLLABLE_BUDGET_MULTIPLIER = 2.0
+_LYRIC_DENSITY_MIN_SYLLABLE_BUDGET = 24
+_LYRIC_DENSITY_MAX_SYLLABLE_BUDGET = 960
+_LYRIC_DENSITY_WARNING_RATIO = 1.6
+_LYRIC_DENSITY_AUTO_TRIM_RATIO = 3.0
+_LYRIC_DENSITY_TRIM_TARGET_RATIO = 1.4
 
 def _get_spaces_gpu_decorator(duration=180):
     """
@@ -310,6 +328,278 @@ def _update_metadata_from_lm(
     return bpm, key_scale, time_signature, audio_duration, vocal_language, caption, lyrics
 
 
+def _count_lyric_words(lyrics: str) -> int:
+    """Count lyric words while ignoring bracketed section-tag lines."""
+    if not lyrics:
+        return 0
+    total = 0
+    for line in lyrics.splitlines():
+        stripped = line.strip()
+        if not stripped or _LYRIC_TAG_LINE_PATTERN.fullmatch(stripped):
+            continue
+        total += len(_LYRIC_WORD_PATTERN.findall(stripped))
+    return total
+
+
+def _estimate_word_syllables(word: str) -> int:
+    """Estimate syllable count for a single word using a lightweight heuristic."""
+    normalized = re.sub(r"[^a-zA-Z]", "", word).lower()
+    if not normalized:
+        return 0
+
+    groups = _LYRIC_VOWEL_GROUP_PATTERN.findall(normalized)
+    syllables = len(groups)
+
+    if normalized.endswith("e") and not normalized.endswith(("le", "ye")) and syllables > 1:
+        syllables -= 1
+
+    return max(1, syllables)
+
+
+def _count_lyric_syllables(lyrics: str) -> int:
+    """Estimate lyric syllables while ignoring bracketed section-tag lines."""
+    if not lyrics:
+        return 0
+    total = 0
+    for line in lyrics.splitlines():
+        stripped = line.strip()
+        if not stripped or _LYRIC_TAG_LINE_PATTERN.fullmatch(stripped):
+            continue
+        for word in _LYRIC_WORD_PATTERN.findall(stripped):
+            total += _estimate_word_syllables(word)
+    return total
+
+
+def _parse_time_signature_numerator(time_signature: str) -> int:
+    """Parse time-signature numerator with a safe default of 4."""
+    if not time_signature:
+        return 4
+    token = str(time_signature).strip()
+    if not token:
+        return 4
+    if "/" in token:
+        token = token.split("/", 1)[0].strip()
+    try:
+        numerator = int(token)
+    except (TypeError, ValueError):
+        return 4
+    if numerator <= 0:
+        return 4
+    return numerator
+
+
+def _estimate_lyric_word_budget(
+    duration: Optional[float],
+    bpm: Optional[int],
+    time_signature: str,
+) -> Optional[int]:
+    """Estimate a soft lyric word budget from duration, tempo, and meter."""
+    if duration is None:
+        return None
+    try:
+        duration_value = float(duration)
+    except (TypeError, ValueError):
+        return None
+    if duration_value <= 0:
+        return None
+
+    effective_bpm = 110.0
+    if bpm is not None:
+        try:
+            bpm_value = float(bpm)
+            if bpm_value > 0:
+                effective_bpm = max(30.0, min(300.0, bpm_value))
+        except (TypeError, ValueError):
+            pass
+
+    beats_per_bar = max(1, _parse_time_signature_numerator(time_signature))
+    beats = duration_value * (effective_bpm / 60.0)
+    bars = beats / beats_per_bar
+    estimated_words = int(round(bars * _LYRIC_DENSITY_WORDS_PER_BAR))
+    return max(_LYRIC_DENSITY_MIN_WORD_BUDGET, min(_LYRIC_DENSITY_MAX_WORD_BUDGET, estimated_words))
+
+
+def _estimate_calculated_vocal_syllable_capacity(
+    duration: Optional[float],
+    bpm: Optional[int],
+    time_signature: str,
+) -> Optional[int]:
+    """Estimate raw vocal syllable capacity before applying policy budget multipliers."""
+    if duration is None:
+        return None
+    try:
+        duration_value = float(duration)
+    except (TypeError, ValueError):
+        return None
+    if duration_value <= 0:
+        return None
+
+    effective_bpm = 110.0
+    if bpm is not None:
+        try:
+            bpm_value = float(bpm)
+            if bpm_value > 0:
+                effective_bpm = max(30.0, min(300.0, bpm_value))
+        except (TypeError, ValueError):
+            pass
+
+    beats_per_bar = max(1, _parse_time_signature_numerator(time_signature))
+    meter_factor = max(0.7, min(1.3, 4.0 / beats_per_bar))
+    beats = duration_value * (effective_bpm / 60.0)
+    vocal_beats = beats * _LYRIC_DENSITY_VOCAL_ACTIVITY_RATIO
+    estimated_syllables = int(
+        round(vocal_beats * _LYRIC_DENSITY_SYLLABLES_PER_BEAT * meter_factor)
+    )
+    return max(1, estimated_syllables)
+
+
+def _estimate_lyric_syllable_budget(
+    duration: Optional[float],
+    bpm: Optional[int],
+    time_signature: str,
+) -> Optional[int]:
+    """Estimate syllable budget from vocal capacity with a soft policy multiplier."""
+    base_capacity = _estimate_calculated_vocal_syllable_capacity(
+        duration=duration,
+        bpm=bpm,
+        time_signature=time_signature,
+    )
+    if base_capacity is None:
+        return None
+    budget = int(round(base_capacity * _LYRIC_DENSITY_SYLLABLE_BUDGET_MULTIPLIER))
+    return max(_LYRIC_DENSITY_MIN_SYLLABLE_BUDGET, min(_LYRIC_DENSITY_MAX_SYLLABLE_BUDGET, budget))
+
+
+def _soft_trim_lyrics_to_word_budget(lyrics: str, word_budget: int) -> Tuple[str, bool]:
+    """Trim non-tag lyric text to an approximate word budget while preserving section tags."""
+    if word_budget <= 0 or not lyrics:
+        return lyrics, False
+
+    remaining = word_budget
+    out_lines: List[str] = []
+    trimmed = False
+
+    for line in lyrics.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            out_lines.append(line)
+            continue
+        if _LYRIC_TAG_LINE_PATTERN.fullmatch(stripped):
+            out_lines.append(line)
+            continue
+
+        words = _LYRIC_WORD_PATTERN.findall(stripped)
+        if not words:
+            out_lines.append(line)
+            continue
+
+        if remaining <= 0:
+            trimmed = True
+            break
+
+        if len(words) <= remaining:
+            out_lines.append(line)
+            remaining -= len(words)
+            continue
+
+        trimmed = True
+        partial_words = words[:remaining]
+        if partial_words:
+            out_lines.append(" ".join(partial_words) + " ...")
+            remaining = 0
+        break
+
+    return "\n".join(out_lines).strip(), trimmed
+
+
+def _normalize_lyrics_for_generation(lyrics: str) -> str:
+    """Normalize user lyrics into DiT-friendly line breaks before generation."""
+    if not lyrics:
+        return lyrics
+
+    normalized_lines: List[str] = []
+    for line in lyrics.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            normalized_lines.append("")
+            continue
+        if _LYRIC_TAG_LINE_PATTERN.fullmatch(stripped):
+            normalized_lines.append(stripped)
+            continue
+
+        parts = [part.strip() for part in _LYRIC_COMMA_LINEBREAK_PATTERN.split(stripped) if part.strip()]
+        if len(parts) <= 1:
+            normalized_lines.append(stripped)
+            continue
+        normalized_lines.extend(parts)
+
+    return "\n".join(normalized_lines)
+
+
+def _apply_soft_lyric_density_guard(
+    lyrics: str,
+    duration: Optional[float],
+    bpm: Optional[int],
+    time_signature: str,
+) -> Tuple[str, Optional[str], bool]:
+    """Warn (and optionally soft-trim) when lyric density is too high for short durations."""
+    stripped = (lyrics or "").strip()
+    if not stripped or stripped.lower() in {"[instrumental]", "[inst]"}:
+        return lyrics, None, False
+
+    word_budget = _estimate_lyric_word_budget(duration=duration, bpm=bpm, time_signature=time_signature)
+    syllable_budget = _estimate_lyric_syllable_budget(
+        duration=duration,
+        bpm=bpm,
+        time_signature=time_signature,
+    )
+    if word_budget is None and syllable_budget is None:
+        return lyrics, None, False
+
+    word_count = _count_lyric_words(lyrics)
+    syllable_count = _count_lyric_syllables(lyrics)
+
+    word_ratio = (word_count / word_budget) if word_budget else 0.0
+    syllable_ratio = (syllable_count / syllable_budget) if syllable_budget else 0.0
+    density_ratio = max(word_ratio, syllable_ratio)
+    if density_ratio <= _LYRIC_DENSITY_WARNING_RATIO:
+        return lyrics, None, False
+
+    budget_bits: List[str] = []
+    if word_budget:
+        budget_bits.append(f"{word_count} words vs ~{word_budget}")
+    if syllable_budget:
+        budget_bits.append(f"{syllable_count} syllables vs ~{syllable_budget}")
+    warning = (
+        f"[Lyric Density] Input lyrics may be too dense for this arrangement "
+        f"({'; '.join(budget_bits)} suggested)."
+    )
+
+    if density_ratio <= _LYRIC_DENSITY_AUTO_TRIM_RATIO:
+        return lyrics, warning, False
+
+    trim_word_target = int(
+        round((word_budget or max(1, word_count)) * _LYRIC_DENSITY_TRIM_TARGET_RATIO)
+    )
+    if syllable_budget and word_count > 0 and syllable_count > 0:
+        avg_syllables_per_word = syllable_count / max(1, word_count)
+        syllable_trim_target = int(
+            round(syllable_budget * _LYRIC_DENSITY_TRIM_TARGET_RATIO)
+            / max(0.1, avg_syllables_per_word)
+        )
+        trim_word_target = min(trim_word_target, max(1, syllable_trim_target))
+
+    trimmed_lyrics, did_trim = _soft_trim_lyrics_to_word_budget(lyrics, trim_word_target)
+    if not did_trim:
+        return lyrics, warning, False
+
+    warning += (
+        f" Applied soft trim to ~{trim_word_target} words. "
+        "Adjust duration/BPM or shorten lyrics for stronger alignment."
+    )
+    return trimmed_lyrics, warning, True
+
+
 @_get_spaces_gpu_decorator(duration=180)
 def generate_music(
     dit_handler,
@@ -348,7 +638,19 @@ def generate_music(
         audio_duration = params.duration
         dit_input_caption = params.caption
         dit_input_vocal_language = params.vocal_language
-        dit_input_lyrics = params.lyrics
+        dit_input_lyrics = _normalize_lyrics_for_generation(params.lyrics)
+        lyrics_for_generation, lyric_density_warning, lyrics_soft_trimmed = _apply_soft_lyric_density_guard(
+            lyrics=dit_input_lyrics,
+            duration=audio_duration,
+            bpm=bpm,
+            time_signature=time_signature,
+        )
+        if lyrics_soft_trimmed:
+            dit_input_lyrics = lyrics_for_generation
+            params.lyrics = lyrics_for_generation
+        elif lyrics_for_generation != dit_input_lyrics:
+            dit_input_lyrics = lyrics_for_generation
+
         # Determine if we need to generate audio codes
         # If user has provided audio_codes, we don't need to generate them
         # Otherwise, check if we need audio codes (lm_dit mode) or just metas (dit mode)
@@ -409,6 +711,9 @@ def generate_music(
                    f"use_cot_caption={params.use_cot_caption}, use_cot_language={params.use_cot_language}, "
                    f"use_cot_metas={params.use_cot_metas}, need_lm_for_cot={need_lm_for_cot}, "
                    f"llm_initialized={llm_handler.llm_initialized if llm_handler else False}, use_lm={use_lm}")
+        if lyric_density_warning:
+            logger.warning("[generate_music] {}", lyric_density_warning)
+            lm_status.append(lyric_density_warning)
         
         if use_lm:
             # Convert sampling parameters - handle None values safely
@@ -471,7 +776,7 @@ def generate_music(
                 # - "dit" will only run phase 1 (metas only)
                 result = llm_handler.generate_with_stop_condition(
                     caption=params.caption or "",
-                    lyrics=params.lyrics or "",
+                    lyrics=lyrics_for_generation or "",
                     infer_type=infer_type,
                     temperature=params.lm_temperature,
                     cfg_scale=params.lm_cfg_scale,
@@ -551,7 +856,15 @@ def generate_music(
                     audio_duration=audio_duration,
                     vocal_language=dit_input_vocal_language,
                     caption=dit_input_caption,
-                    lyrics=dit_input_lyrics)
+                    lyrics=lyrics_for_generation)
+                generated_caption = ensure_caption_has_global_vocal_presence(
+                    lm_generated_metadata.get('caption', '') or '',
+                    lyrics=lm_generated_metadata.get('lyrics', '') or lyrics,
+                    vocal_language=lm_generated_metadata.get('vocal_language', '') or vocal_language,
+                    instrumental=lm_generated_metadata.get('instrumental'),
+                )
+                if generated_caption:
+                    caption = generated_caption
                 if not params.bpm:
                     params.cot_bpm = bpm
                 if not params.keyscale:
@@ -568,9 +881,14 @@ def generate_music(
                     params.cot_lyrics = lyrics
 
             # set cot caption and language if needed
-            if params.use_cot_caption:
-                dit_input_caption = lm_generated_metadata.get("caption", dit_input_caption)
-            if params.use_cot_language:
+            if params.use_cot_caption and lm_generated_metadata:
+                dit_input_caption = ensure_caption_has_global_vocal_presence(
+                    lm_generated_metadata.get('caption', '') or dit_input_caption,
+                    lyrics=lm_generated_metadata.get('lyrics', '') or lyrics_for_generation,
+                    vocal_language=lm_generated_metadata.get('vocal_language', '') or dit_input_vocal_language,
+                    instrumental=lm_generated_metadata.get('instrumental'),
+                )
+            if params.use_cot_language and lm_generated_metadata:
                 dit_input_vocal_language = lm_generated_metadata.get("vocal_language", dit_input_vocal_language)
 
         # Repaint/cover: no LM run, so conditioning must come from params (caption + lyrics from GUI).

@@ -18,14 +18,17 @@ from acestep.text_tasks.external_lm_mode import (
     get_external_lm_choices,
     resolve_external_api_key_for_runtime,
 )
-from acestep.text_tasks.external_lm_runtime_store import save_external_lm_runtime_settings
+from acestep.text_tasks.external_lm_runtime_store import (
+    load_external_lm_runtime_settings_for_provider,
+    save_external_lm_runtime_settings,
+)
 from acestep.text_tasks.external_lm_providers import (
     build_external_model_choice,
     get_external_provider_profile,
 )
 from acestep.text_tasks.passphrase_store import (
-    GLM_SECRET_SERVICE,
-    GLM_SECRET_USERNAME,
+    EXTERNAL_AI_SECRET_SERVICE,
+    EXTERNAL_AI_SECRET_USERNAME,
     resolve_runtime_passphrase,
     store_runtime_passphrase,
 )
@@ -33,32 +36,56 @@ from acestep.text_tasks.secure_secret_store import EncryptedSecretStore, SecretS
 
 
 def load_external_lm_provider_defaults(provider: str) -> tuple[dict, dict, dict, str]:
-    """Return protocol/model/base-url defaults for selected provider."""
+    """Return provider settings from saved prefs when available, else provider defaults."""
     profile = get_external_provider_profile(provider)
+    saved_settings = load_external_lm_runtime_settings_for_provider(profile.provider_id)
+    protocol_value = saved_settings.get("protocol", "").strip() if saved_settings else ""
+    model_value = saved_settings.get("model", "").strip() if saved_settings else ""
+    base_url_value = saved_settings.get("base_url", "").strip() if saved_settings else ""
+
+    selected_protocol = protocol_value or profile.protocol
+    selected_model = model_value or profile.default_model
+    selected_base_url = base_url_value or profile.default_base_url
+    model_choices = list(dict.fromkeys([selected_model, profile.default_model]))
+
     status_lines = [
         f"Provider: {profile.label}",
-        f"Protocol: {profile.protocol}",
-        f"Default model: {profile.default_model}",
-        f"Default base URL: {profile.default_base_url}",
+        f"Protocol: {selected_protocol}",
+        f"Model: {selected_model}",
+        f"Base URL: {selected_base_url}",
         f"API key env: {profile.api_key_env}",
+        (
+            "Loaded saved provider preferences."
+            if saved_settings
+            else "Using built-in provider defaults."
+        ),
     ]
     if profile.provider_id == "zai":
         status_lines.append(
             "Coding Plan tip: use https://api.z.ai/api/coding/paas/v4/chat/completions "
             "with a coding-plan-supported model if your quota is on the Coding Plan lane."
         )
-    status = _as_markdown_status(
-        "\n".join(status_lines)
-    )
+    status = _as_markdown_status("\n".join(status_lines))
     return (
-        gr.update(value=profile.protocol),
-        gr.update(
-            choices=[profile.default_model],
-            value=profile.default_model,
-        ),
-        gr.update(value=profile.default_base_url),
+        gr.update(value=selected_protocol),
+        gr.update(choices=model_choices, value=selected_model),
+        gr.update(value=selected_base_url),
         status,
     )
+
+
+def load_external_lm_provider_defaults_with_lm_dropdown(
+    provider: str,
+    llm_handler: Any | None = None,
+) -> tuple[dict, dict, dict, str, dict]:
+    """Load provider defaults and refresh the service LM dropdown choices."""
+    protocol_update, model_update, base_url_update, status = load_external_lm_provider_defaults(provider)
+    lm_dropdown_update = _build_lm_dropdown_preview_update(
+        provider=provider,
+        model=model_update.get("value"),
+        llm_handler=llm_handler,
+    )
+    return protocol_update, model_update, base_url_update, status, lm_dropdown_update
 
 
 def fetch_external_lm_models_from_ui(
@@ -114,6 +141,30 @@ def fetch_external_lm_models_from_ui(
     )
 
 
+def fetch_external_lm_models_from_ui_with_lm_dropdown(
+    provider: str,
+    protocol: str,
+    base_url: str,
+    api_key: str,
+    current_model: str,
+    llm_handler: Any | None = None,
+) -> tuple[dict, str, dict]:
+    """Fetch provider models and refresh the service LM dropdown choices."""
+    model_update, status = fetch_external_lm_models_from_ui(
+        provider=provider,
+        protocol=protocol,
+        base_url=base_url,
+        api_key=api_key,
+        current_model=current_model,
+    )
+    lm_dropdown_update = _build_lm_dropdown_preview_update(
+        provider=provider,
+        model=model_update.get("value") or current_model,
+        llm_handler=llm_handler,
+    )
+    return model_update, status, lm_dropdown_update
+
+
 def save_external_lm_settings_from_ui(
     provider: str,
     protocol: str,
@@ -155,7 +206,7 @@ def save_external_lm_settings_from_ui(
                 store = _resolve_secret_store_for_provider(provider_id)
                 store.save(secret=api_key_value, passphrase=passphrase_value)
                 status_lines.append(f"Encrypted API key stored at: {store.secret_path}")
-                os.environ["ACESTEP_GLM_STORE_PASSPHRASE"] = passphrase_value
+                os.environ["ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE"] = passphrase_value
             except SecretStoreError as exc:
                 message = f"Failed to store encrypted API key: {exc}"
                 gr.Warning(message)
@@ -193,8 +244,8 @@ def save_external_lm_settings_from_ui(
     os.environ["ACESTEP_EXTERNAL_LM_ENABLED"] = "true"
     os.environ["ACESTEP_TEXT_PROVIDER"] = provider_id
     if provider_id == "zai":
-        os.environ["ACESTEP_GLM_MODEL"] = model_value
-        os.environ["ACESTEP_GLM_BASE_URL"] = base_url_value
+        os.environ["ACESTEP_ZAI_MODEL"] = model_value
+        os.environ["ACESTEP_ZAI_BASE_URL"] = base_url_value
     try:
         persisted_path = save_external_lm_runtime_settings(
             provider=provider_id,
@@ -265,8 +316,8 @@ def check_external_lm_runtime_from_ui(
         f"secret-tool available: {'yes' if _secret_tool_available() else 'no'}",
         f"python keyring available: {'yes' if _python_keyring_available() else 'no'}",
         "Secret lookup identity: "
-        f"service={os.getenv('ACESTEP_GLM_SECRET_SERVICE', GLM_SECRET_SERVICE)} "
-        f"username={os.getenv('ACESTEP_GLM_SECRET_USERNAME', GLM_SECRET_USERNAME)}",
+        f"service={os.getenv('ACESTEP_EXTERNAL_AI_SECRET_SERVICE', EXTERNAL_AI_SECRET_SERVICE)} "
+        f"username={os.getenv('ACESTEP_EXTERNAL_AI_SECRET_USERNAME', EXTERNAL_AI_SECRET_USERNAME)}",
     ]
     if saved_model and configured_model != saved_model:
         status_lines.append(
@@ -291,27 +342,6 @@ def check_external_lm_runtime_from_ui(
     return status
 
 
-def save_glm_credentials_from_ui(
-    api_key: str,
-    store_passphrase: str,
-    save_passphrase_to_keyring: bool,
-) -> tuple[str, dict, dict]:
-    """Backward-compatible wrapper for legacy GLM save action signature."""
-    status, api_update, pass_update, _ = save_external_lm_settings_from_ui(
-        provider="zai",
-        protocol="openai_chat",
-        model=os.getenv("ACESTEP_GLM_MODEL", "glm-4.5-flash"),
-        base_url=os.getenv("ACESTEP_GLM_BASE_URL", "https://api.z.ai/api/paas/v4/chat/completions"),
-        api_key=api_key,
-        store_passphrase=store_passphrase,
-        save_passphrase_to_keyring=save_passphrase_to_keyring,
-    )
-    return status, api_update, pass_update
-
-
-def check_glm_runtime_from_ui() -> str:
-    """Backward-compatible wrapper for legacy GLM runtime doctor action."""
-    return check_external_lm_runtime_from_ui("zai")
 
 
 def _build_runtime_summary_line(provider: str) -> str:
@@ -336,6 +366,21 @@ def _build_lm_dropdown_choices(llm_handler: Any | None) -> list[str] | None:
 
     local_models = llm_handler.get_available_5hz_lm_models() or []
     return list(dict.fromkeys(local_models + get_external_lm_choices()))
+
+
+def _build_lm_dropdown_preview_update(
+    provider: str,
+    model: str | None,
+    llm_handler: Any | None,
+) -> dict:
+    """Build LM dropdown update that includes a staged external provider/model choice."""
+    choices = _build_lm_dropdown_choices(llm_handler)
+    if choices is None:
+        return gr.update()
+
+    model_value = (model or "").strip() or get_external_provider_profile(provider).default_model
+    preview_choice = build_external_model_choice(provider, model_value)
+    return gr.update(choices=list(dict.fromkeys(choices + [preview_choice])))
 
 
 def _resolve_secret_store_for_provider(provider: str) -> EncryptedSecretStore:

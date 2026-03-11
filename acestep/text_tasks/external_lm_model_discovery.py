@@ -45,7 +45,11 @@ def discover_external_models(
             failures.append(f"{url} -> {exc}")
             continue
 
-        models = _extract_model_ids(payload)
+        models = _filter_discovered_model_ids(
+            provider=provider,
+            protocol=protocol,
+            model_ids=_extract_model_ids(payload),
+        )
         if models:
             return models
         failures.append(f"{url} -> no models found in response")
@@ -149,3 +153,23 @@ def _add_model_id(collector: OrderedDict[str, None], item: Any) -> None:
         if isinstance(value, str) and value.strip():
             collector[value.strip()] = None
             return
+
+
+def _filter_discovered_model_ids(*, provider: str, protocol: str, model_ids: list[str]) -> list[str]:
+    """Filter discovered model IDs down to entries compatible with the current runtime."""
+    provider_token = (provider or "").strip().lower()
+    protocol_token = (protocol or "").strip().lower()
+    if provider_token == "openai" and protocol_token == "openai_chat":
+        return [model_id for model_id in model_ids if _is_openai_chat_compatible_model(model_id)]
+    return model_ids
+
+
+def _is_openai_chat_compatible_model(model_id: str) -> bool:
+    """Return whether an OpenAI-discovered model is compatible with chat-completions usage."""
+    token = (model_id or "").strip().lower()
+    if not token:
+        return False
+
+    incompatible_markers = ("codex", "computer-use")
+    return not any(marker in token for marker in incompatible_markers)
+

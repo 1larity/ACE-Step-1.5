@@ -24,11 +24,17 @@ from transformers.generation.logits_process import (
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
 from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
+from acestep.text_tasks.enhancement_scaffold import build_preservation_directives
+from acestep.lm_task_debug import is_lm_task_debug_enabled
 
 # Minimum free VRAM (GB) required to attempt vLLM initialization.
 # vLLM's KV cache allocator adapts to available memory, so we only need a
-# basic sanity check — not a hard total-VRAM gate.
+# basic sanity check â€” not a hard total-VRAM gate.
 VRAM_SAFE_FREE_GB = 2.0
+COT_PHASE_FALLBACK_MAX_TOKENS = 640
+UNDERSTAND_PHASE_FALLBACK_MAX_TOKENS = 2048
+UNDERSTAND_PHASE_MAX_TOKENS = 3072
+UNDERSTAND_PHASE_DURATION_BUFFER_TOKENS = 512
 
 
 def _warn_if_prerelease_python():
@@ -80,6 +86,16 @@ class LLMHandler:
 
     def unload(self) -> None:
         """Release LM weights/tokenizer and clear caches to free memory."""
+        if is_lm_task_debug_enabled():
+            logger.debug(
+                "LM task prompt backend={} phase={} constrained={} stop_at_reasoning={} prompt={}",
+                self.llm_backend or "pt",
+                generation_phase,
+                use_constrained_decoding,
+                stop_at_reasoning,
+                formatted_prompt,
+            )
+
         try:
             if self.llm_backend == "vllm":
                 try:
@@ -210,6 +226,9 @@ class LLMHandler:
         - Codes phase: CoT is already in the prompt; only audio codes are generated.
           The constrained decoder forces EOS at exactly target_codes, so only a
           small buffer (10 tokens) is needed to avoid a misleading progress bar.
+        - Understand phase: generates metadata then free-form lyrics. This phase
+          can occasionally miss EOS and run until token limit; keep a tighter cap
+          to avoid pathological repetition loops.
 
         Duration is clamped to ``[DURATION_MIN, max_dur]`` where *max_dur* is the
         GPU-config-dependent maximum (from ``get_global_gpu_config()``) capped at
@@ -218,7 +237,7 @@ class LLMHandler:
 
         Args:
             target_duration: Target duration in seconds (5 codes = 1 second).
-            generation_phase: "cot" or "codes".
+            generation_phase: "cot", "codes", or "understand".
             fallback_max: Fallback value when target_duration is not set.
 
         Returns:
@@ -241,6 +260,13 @@ class LLMHandler:
                 # Codes phase: CoT already in prompt, only audio codes generated.
                 # Constrained decoder forces EOS at target_codes, so small buffer suffices.
                 max_new_tokens = target_codes + 10
+            elif generation_phase == "understand":
+                # Understand phase: metadata + lyrics text.
+                # Use a duration-aware budget, but cap it to prevent long repetition loops.
+                max_new_tokens = min(
+                    target_codes + UNDERSTAND_PHASE_DURATION_BUFFER_TOKENS,
+                    UNDERSTAND_PHASE_MAX_TOKENS,
+                )
             else:
                 # CoT phase or mixed: add larger buffer for metadata overhead.
                 max_new_tokens = target_codes + 500
@@ -249,6 +275,10 @@ class LLMHandler:
                 max_new_tokens = fallback_max
             else:
                 max_new_tokens = getattr(self, "max_model_len", 4096) - 64
+            if generation_phase == "cot":
+                max_new_tokens = min(max_new_tokens, COT_PHASE_FALLBACK_MAX_TOKENS)
+            if generation_phase == "understand":
+                max_new_tokens = min(max_new_tokens, UNDERSTAND_PHASE_FALLBACK_MAX_TOKENS)
 
         # Cap at model's max length
         if hasattr(self, "max_model_len"):
@@ -359,10 +389,10 @@ class LLMHandler:
             self.llm_backend = "pt"
             self.llm_initialized = True
             logger.info(f"5Hz LM initialized successfully using PyTorch backend on {device}")
-            status_msg = f"✅ 5Hz LM initialized successfully\nModel: {model_path}\nBackend: PyTorch\nDevice: {device}"
+            status_msg = f"âœ… 5Hz LM initialized successfully\nModel: {model_path}\nBackend: PyTorch\nDevice: {device}"
             return True, status_msg
         except Exception as e:
-            return False, f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+            return False, f"âŒ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
 
     def _apply_top_k_filter(self, logits: torch.Tensor, top_k: Optional[int]) -> torch.Tensor:
         """Apply top-k filtering to logits"""
@@ -538,7 +568,7 @@ class LLMHandler:
 
             full_lm_model_path = os.path.join(checkpoint_dir, lm_model_path)
             if not os.path.exists(full_lm_model_path):
-                return f"❌ 5Hz LM model not found at {full_lm_model_path}", False
+                return f"âŒ 5Hz LM model not found at {full_lm_model_path}", False
 
             # Proactive CUDA cleanup before LM load to reduce fragmentation on mode/model switch
             if device == "cuda" and torch.cuda.is_available():
@@ -600,7 +630,7 @@ class LLMHandler:
                             success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
                             if not success:
                                 return status_msg, False
-                            status_msg = f"✅ 5Hz LM initialized (PyTorch fallback from MLX)\nModel: {full_lm_model_path}\nBackend: PyTorch"
+                            status_msg = f"âœ… 5Hz LM initialized (PyTorch fallback from MLX)\nModel: {full_lm_model_path}\nBackend: PyTorch"
                             return status_msg, True
                         # else: backend was "vllm" on MPS, continue to vllm attempt below
                 elif backend == "mlx":
@@ -609,7 +639,7 @@ class LLMHandler:
                     success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
                     if not success:
                         return status_msg, False
-                    status_msg = f"✅ 5Hz LM initialized (PyTorch fallback, MLX not available)\nModel: {full_lm_model_path}\nBackend: PyTorch"
+                    status_msg = f"âœ… 5Hz LM initialized (PyTorch fallback, MLX not available)\nModel: {full_lm_model_path}\nBackend: PyTorch"
                     return status_msg, True
 
             if backend == "vllm" and device != "cuda":
@@ -635,19 +665,19 @@ class LLMHandler:
                         free_gb = 0.0
                 if device == "cuda" and free_gb < VRAM_SAFE_FREE_GB:
                     logger.warning(
-                        f"vLLM disabled due to insufficient free VRAM (total={total_gb:.2f}GB, free={free_gb:.2f}GB, need>={VRAM_SAFE_FREE_GB}GB free) — falling back to PyTorch backend"
+                        f"vLLM disabled due to insufficient free VRAM (total={total_gb:.2f}GB, free={free_gb:.2f}GB, need>={VRAM_SAFE_FREE_GB}GB free) â€” falling back to PyTorch backend"
                     )
                     success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
                     if not success:
                         return status_msg, False
-                    status_msg = f"✅ 5Hz LM initialized successfully (PyTorch fallback)\nModel: {full_lm_model_path}\nBackend: PyTorch"
+                    status_msg = f"âœ… 5Hz LM initialized successfully (PyTorch fallback)\nModel: {full_lm_model_path}\nBackend: PyTorch"
                 else:
                     status_msg = self._initialize_5hz_lm_vllm(
                         full_lm_model_path,
                         enforce_eager=enforce_eager_for_vllm,
                     )
                     logger.info(f"5Hz LM status message: {status_msg}")
-                    if status_msg.startswith("❌"):
+                    if status_msg.startswith("âŒ"):
                         if not self.llm_initialized:
                             if device == "mps" and self._is_mlx_available():
                                 logger.warning("vllm failed on MPS, trying MLX backend...")
@@ -659,7 +689,7 @@ class LLMHandler:
                             success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
                             if not success:
                                 return status_msg, False
-                            status_msg = f"✅ 5Hz LM initialized successfully (PyTorch fallback)\nModel: {full_lm_model_path}\nBackend: PyTorch"
+                            status_msg = f"âœ… 5Hz LM initialized successfully (PyTorch fallback)\nModel: {full_lm_model_path}\nBackend: PyTorch"
             elif backend != "mlx":
                 success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
                 if not success:
@@ -668,7 +698,7 @@ class LLMHandler:
             return status_msg, True
 
         except Exception as e:
-            return f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}", False
+            return f"âŒ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}", False
 
     def _initialize_5hz_lm_vllm(self, model_path: str, enforce_eager: bool = False) -> str:
         """Initialize 5Hz LM model using vllm backend. When enforce_eager is True, CUDA graph
@@ -676,13 +706,13 @@ class LLMHandler:
         if not torch.cuda.is_available():
             self.llm_initialized = False
             logger.error("CUDA/ROCm is not available. Please check your GPU setup.")
-            return "❌ CUDA/ROCm is not available. Please check your GPU setup."
+            return "âŒ CUDA/ROCm is not available. Please check your GPU setup."
         try:
             from nanovllm import LLM, SamplingParams
         except ImportError:
             self.llm_initialized = False
             logger.error("nano-vllm is not installed. Please install it using 'cd acestep/third_parts/nano-vllm && pip install .")
-            return "❌ nano-vllm is not installed. Please install it using 'cd acestep/third_parts/nano-vllm && pip install ."
+            return "âŒ nano-vllm is not installed. Please install it using 'cd acestep/third_parts/nano-vllm && pip install ."
 
         try:
             current_device = torch.cuda.current_device()
@@ -717,10 +747,10 @@ class LLMHandler:
             logger.info(f"5Hz LM initialized successfully in {time.time() - start_time:.2f} seconds")
             self.llm_initialized = True
             self.llm_backend = "vllm"
-            return f"✅ 5Hz LM initialized successfully\nModel: {model_path}\nDevice: {device_name}\nGPU Memory Utilization: {gpu_memory_utilization:.3f}\nLow GPU Memory Mode: {low_gpu_memory_mode}"
+            return f"âœ… 5Hz LM initialized successfully\nModel: {model_path}\nDevice: {device_name}\nGPU Memory Utilization: {gpu_memory_utilization:.3f}\nLow GPU Memory Mode: {low_gpu_memory_mode}"
         except Exception as e:
             self.llm_initialized = False
-            return f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+            return f"âŒ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
 
     def _run_vllm(
         self,
@@ -1130,6 +1160,35 @@ class LLMHandler:
 
         return f"<think>\n{cot_yaml}\n</think>"
 
+    def _resolve_target_duration(
+        self,
+        target_duration: Optional[float],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[float]:
+        """Resolve effective target duration, preferring explicit input over metadata."""
+        if target_duration is not None:
+            try:
+                duration_value = float(target_duration)
+                if duration_value > 0:
+                    return duration_value
+            except (TypeError, ValueError):
+                pass
+
+        if not metadata:
+            return None
+
+        metadata_duration = metadata.get("duration")
+        if metadata_duration is None:
+            return None
+
+        try:
+            duration_value = float(metadata_duration)
+        except (TypeError, ValueError):
+            return None
+        if duration_value <= 0:
+            return None
+        return duration_value
+
     def generate_with_stop_condition(
         self,
         caption: str,
@@ -1322,6 +1381,7 @@ class LLMHandler:
         # Build formatted prompt with CoT for codes generation phase
         formatted_prompt_with_cot = self.build_formatted_prompt_with_cot(caption, lyrics, cot_text)
         logger.info(f"generate_with_stop_condition: formatted_prompt_with_cot={formatted_prompt_with_cot}")
+        phase2_target_duration = self._resolve_target_duration(target_duration, metadata)
 
         progress(0.5, f"Phase 2: Generating audio codes for {actual_batch_size} items...")
         if is_batch:
@@ -1341,7 +1401,7 @@ class LLMHandler:
                         repetition_penalty=repetition_penalty,
                         use_constrained_decoding=use_constrained_decoding,
                         constrained_decoding_debug=constrained_decoding_debug,
-                        target_duration=target_duration,
+                        target_duration=phase2_target_duration,
                         generation_phase="codes",
                         caption=caption,
                         lyrics=lyrics,
@@ -1359,7 +1419,7 @@ class LLMHandler:
                         repetition_penalty=repetition_penalty,
                         use_constrained_decoding=use_constrained_decoding,
                         constrained_decoding_debug=constrained_decoding_debug,
-                        target_duration=target_duration,
+                        target_duration=phase2_target_duration,
                         generation_phase="codes",
                         caption=caption,
                         lyrics=lyrics,
@@ -1377,7 +1437,7 @@ class LLMHandler:
                         repetition_penalty=repetition_penalty,
                         use_constrained_decoding=use_constrained_decoding,
                         constrained_decoding_debug=constrained_decoding_debug,
-                        target_duration=target_duration,
+                        target_duration=phase2_target_duration,
                         generation_phase="codes",
                         caption=caption,
                         lyrics=lyrics,
@@ -1442,7 +1502,7 @@ class LLMHandler:
                     "top_k": top_k,
                     "top_p": top_p,
                     "repetition_penalty": repetition_penalty,
-                    "target_duration": target_duration,
+                    "target_duration": phase2_target_duration,
                     "user_metadata": None,  # No user metadata injection in Phase 2
                     "skip_caption": True,  # Skip caption since CoT is already included
                     "skip_language": True,  # Skip language since CoT is already included
@@ -1701,10 +1761,10 @@ class LLMHandler:
             print(metadata['lyrics'])   # "[Intro: ...]\\n..."
         """
         if not getattr(self, "llm_initialized", False):
-            return {}, "❌ 5Hz LM not initialized. Please initialize it first."
+            return {}, "âŒ 5Hz LM not initialized. Please initialize it first."
 
         if not audio_codes or not audio_codes.strip():
-            return {}, "❌ No audio codes provided. Please paste audio codes first."
+            return {}, "âŒ No audio codes provided. Please paste audio codes first."
 
         logger.info(f"Understanding audio codes (length: {len(audio_codes)} chars)")
 
@@ -1752,7 +1812,7 @@ class LLMHandler:
             logger.debug(f"Generated metadata: {list(metadata.keys())}")
             logger.debug(f"Output text preview: {output_text[:200]}...")
 
-        status_msg = f"✅ Understanding completed successfully\nGenerated fields: {', '.join(metadata.keys())}"
+        status_msg = f"âœ… Understanding completed successfully\nGenerated fields: {', '.join(metadata.keys())}"
         return metadata, status_msg
 
     def _extract_lyrics_from_output(self, output_text: str) -> str:
@@ -1897,7 +1957,7 @@ class LLMHandler:
             print(metadata['lyrics'])   # "[Intro: ...]\\n..."
         """
         if not getattr(self, "llm_initialized", False):
-            return {}, "❌ 5Hz LM not initialized. Please initialize it first."
+            return {}, "âŒ 5Hz LM not initialized. Please initialize it first."
 
         if not query or not query.strip():
             query = "NO USER INPUT"
@@ -1966,7 +2026,7 @@ class LLMHandler:
             logger.debug(f"Generated metadata: {list(metadata.keys())}")
             logger.debug(f"Output text preview: {output_text[:300]}...")
 
-        status_msg = f"✅ Sample created successfully\nGenerated fields: {metadata}"
+        status_msg = f"âœ… Sample created successfully\nGenerated fields: {metadata}"
         return metadata, status_msg
 
     def build_formatted_prompt_for_format(
@@ -2005,6 +2065,9 @@ class LLMHandler:
         else:
             # Normal prompt: caption + lyrics
             user_content = f"# Caption\n{caption}\n\n# Lyric\n{lyrics}"
+            preservation_directives = build_preservation_directives(caption=caption, lyrics=lyrics)
+            if preservation_directives:
+                user_content += f"\n\n# Preserve\n{preservation_directives}"
 
         return self.llm_tokenizer.apply_chat_template(
             [
@@ -2074,7 +2137,7 @@ class LLMHandler:
             print(metadata['bpm'])      # 100
         """
         if not getattr(self, "llm_initialized", False):
-            return {}, "❌ 5Hz LM not initialized. Please initialize it first."
+            return {}, "âŒ 5Hz LM not initialized. Please initialize it first."
 
         if not caption or not caption.strip():
             caption = "NO USER INPUT"
@@ -2121,6 +2184,12 @@ class LLMHandler:
             else:
                 logger.info(f"Using user-provided metadata constraints: {constrained_metadata}")
 
+        target_duration = (
+            constrained_metadata.get("duration")
+            if constrained_metadata and constrained_metadata.get("duration") is not None
+            else None
+        )
+
         # Generate using constrained decoding (format phase)
         # Similar to understand/inspiration mode - generate metadata first (CoT), then formatted lyrics
         # Note: cfg_scale and negative_prompt are not used in format mode
@@ -2131,7 +2200,7 @@ class LLMHandler:
                 "top_k": top_k,
                 "top_p": top_p,
                 "repetition_penalty": repetition_penalty,
-                "target_duration": None,  # No duration constraint for generation length
+                "target_duration": target_duration,
                 "user_metadata": constrained_metadata,  # Inject user-provided metadata
                 "skip_caption": False,  # Generate caption
                 "skip_language": constrained_metadata.get('language') is not None if constrained_metadata else False,
@@ -2164,7 +2233,7 @@ class LLMHandler:
             logger.debug(f"Generated metadata: {list(metadata.keys())}")
             logger.debug(f"Output text preview: {output_text[:300]}...")
 
-        status_msg = f"✅ Format completed successfully\nGenerated fields: {', '.join(metadata.keys())}"
+        status_msg = f"âœ… Format completed successfully\nGenerated fields: {', '.join(metadata.keys())}"
         return metadata, status_msg
 
     def generate_from_formatted_prompt(
@@ -2199,13 +2268,13 @@ class LLMHandler:
             text, status = handler.generate_from_formatted_prompt(prompt, {"temperature": 0.7})
         """
         if not getattr(self, "llm_initialized", False):
-            return "", "❌ 5Hz LM not initialized. Please initialize it first."
+            return "", "âŒ 5Hz LM not initialized. Please initialize it first."
         # Check that the appropriate model is loaded for the active backend
         if self.llm_backend == "mlx":
             if self._mlx_model is None or self.llm_tokenizer is None:
-                return "", "❌ 5Hz LM is missing MLX model or tokenizer."
+                return "", "âŒ 5Hz LM is missing MLX model or tokenizer."
         elif self.llm is None or self.llm_tokenizer is None:
-            return "", "❌ 5Hz LM is missing model or tokenizer."
+            return "", "âŒ 5Hz LM is missing model or tokenizer."
 
         cfg = cfg or {}
         temperature = cfg.get("temperature", 0.6)
@@ -2225,6 +2294,16 @@ class LLMHandler:
         lyrics = cfg.get("lyrics", "")
         cot_text = cfg.get("cot_text", "")
 
+
+        if is_lm_task_debug_enabled():
+            logger.debug(
+                "LM task prompt backend={} phase={} constrained={} stop_at_reasoning={} prompt={}",
+                self.llm_backend or "pt",
+                generation_phase,
+                use_constrained_decoding,
+                stop_at_reasoning,
+                formatted_prompt,
+            )
         try:
             if self.llm_backend == "vllm":
                 output_text = self._run_vllm(
@@ -2248,7 +2327,9 @@ class LLMHandler:
                     lyrics=lyrics,
                     cot_text=cot_text,
                 )
-                return output_text, f"✅ Generated successfully (vllm) | length={len(output_text)}"
+                if is_lm_task_debug_enabled():
+                    logger.debug("LM task output backend={} phase={} output={}", "vllm", generation_phase, output_text)
+                return output_text, f"âœ… Generated successfully (vllm) | length={len(output_text)}"
 
             elif self.llm_backend == "mlx":
                 # MLX backend (Apple Silicon native)
@@ -2273,7 +2354,9 @@ class LLMHandler:
                     lyrics=lyrics,
                     cot_text=cot_text,
                 )
-                return output_text, f"✅ Generated successfully (mlx) | length={len(output_text)}"
+                if is_lm_task_debug_enabled():
+                    logger.debug("LM task output backend={} phase={} output={}", "mlx", generation_phase, output_text)
+                return output_text, f"âœ… Generated successfully (mlx) | length={len(output_text)}"
 
             # PyTorch backend (fallback)
             output_text = self._run_pt(
@@ -2297,7 +2380,9 @@ class LLMHandler:
                 lyrics=lyrics,
                 cot_text=cot_text,
             )
-            return output_text, f"✅ Generated successfully (pt) | length={len(output_text)}"
+            if is_lm_task_debug_enabled():
+                logger.debug("LM task output backend={} phase={} output={}", "pt", generation_phase, output_text)
+            return output_text, f"âœ… Generated successfully (pt) | length={len(output_text)}"
 
         except Exception as e:
             # Log full traceback for debugging
@@ -2329,7 +2414,7 @@ class LLMHandler:
             elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 torch.mps.empty_cache()
                 torch.mps.synchronize()
-            return "", f"❌ Error generating from formatted prompt: {type(e).__name__}: {e or error_detail.splitlines()[-1]}"
+            return "", f"âŒ Error generating from formatted prompt: {type(e).__name__}: {e or error_detail.splitlines()[-1]}"
 
     def _generate_with_constrained_decoding(
         self,
@@ -2616,7 +2701,8 @@ class LLMHandler:
             Tuple of (metadata_dict, audio_codes_string)
         """
         debug_output_text = output_text.split("</think>")[0]
-        logger.debug(f"Debug output text: {debug_output_text}")
+        if is_lm_task_debug_enabled():
+            logger.debug(f"Debug output text: {debug_output_text}")
         metadata = {}
         audio_codes = ""
 
@@ -2811,7 +2897,7 @@ class LLMHandler:
             self.llm_backend = "mlx"
             self.llm_initialized = True
             status_msg = (
-                f"✅ 5Hz LM initialized successfully\n"
+                f"âœ… 5Hz LM initialized successfully\n"
                 f"Model: {model_path}\n"
                 f"Backend: MLX (Apple Silicon native)\n"
                 f"Device: Apple Silicon GPU"
@@ -2822,7 +2908,7 @@ class LLMHandler:
             import traceback
             error_detail = traceback.format_exc()
             logger.warning(f"Failed to load MLX model: {e}\n{error_detail}")
-            return False, f"❌ MLX load failed: {str(e)}"
+            return False, f"âŒ MLX load failed: {str(e)}"
 
     def _make_mlx_cache(self):
         """Create a KV cache for the MLX model."""
@@ -3923,7 +4009,7 @@ class LLMHandler:
 
         # Reentrancy guard: if an outer context already loaded the model
         # to the target device, skip the inner load/offload to avoid
-        # redundant CPU↔GPU transfers during batch processing.
+        # redundant CPUâ†”GPU transfers during batch processing.
         try:
             current_device = next(model.parameters()).device.type
         except StopIteration:
@@ -4046,3 +4132,5 @@ class LLMHandler:
 
         else:
             raise ValueError(f"Unknown backend: {self.llm_backend}")
+
+

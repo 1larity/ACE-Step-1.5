@@ -20,9 +20,10 @@ from acestep.gpu_config import (
     check_duration_limit,
     check_batch_size_limit,
 )
+from acestep.text_tasks.caption_vocal_presence import ensure_caption_has_global_vocal_presence
 from acestep.text_tasks.external_lm_mode import is_external_lm_active
 from acestep.text_tasks.external_lm_tasks import (
-    GlmClientError,
+    ExternalAIClientError,
     format_sample_with_external_provider,
 )
 from acestep.ui.gradio.i18n import t
@@ -45,7 +46,7 @@ def _external_cot_should_run(
     use_cot_caption: bool,
     use_cot_language: bool,
 ) -> bool:
-    """Return whether external GLM should satisfy CoT metadata/text flags."""
+    """Return whether external AI should satisfy CoT metadata/text flags."""
     local_lm_initialized = llm_handler.llm_initialized if llm_handler else False
     wants_cot = think_checkbox or use_cot_metas or use_cot_caption or use_cot_language
     return is_external_lm_active() and not local_lm_initialized and wants_cot
@@ -154,8 +155,14 @@ def generate_with_progress(
                 ),
             )
 
+            normalized_external_caption = ensure_caption_has_global_vocal_presence(
+                external_result.caption or "",
+                lyrics=external_result.lyrics or lyrics or "",
+                vocal_language=external_result.language or vocal_language,
+            )
+
             if think_checkbox or use_cot_caption:
-                captions = external_result.caption or captions
+                captions = normalized_external_caption or captions
                 if not (lyrics and str(lyrics).strip()):
                     lyrics = external_result.lyrics or lyrics
 
@@ -174,10 +181,10 @@ def generate_with_progress(
                 if vocal_language in (None, "", "unknown"):
                     vocal_language = external_result.language or vocal_language
 
-            external_cot_status = external_result.status_message or "External GLM CoT applied."
+            external_cot_status = external_result.status_message or "External AI CoT applied."
             gr.Info(external_cot_status)
-        except GlmClientError as exc:
-            external_cot_status = f"External GLM CoT warning: {exc}"
+        except ExternalAIClientError as exc:
+            external_cot_status = f"External AI CoT warning: {exc}"
             gr.Warning(external_cot_status)
 
         # External provider satisfies language CoT tasks only. Local 5Hz-LM-only

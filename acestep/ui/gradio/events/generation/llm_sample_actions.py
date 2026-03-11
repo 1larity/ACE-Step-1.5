@@ -3,15 +3,30 @@
 import gradio as gr
 
 from acestep.inference import create_sample
+from acestep.text_tasks.caption_vocal_presence import ensure_caption_has_global_vocal_presence
 from acestep.text_tasks.external_lm_mode import is_external_lm_active
 from acestep.text_tasks.external_lm_tasks import (
-    GlmClientError,
+    ExternalAIClientError,
     create_sample_with_external_provider,
 )
 from acestep.ui.gradio.i18n import t
 
 from .llm_action_params import convert_lm_params
 from .validation import clamp_duration_to_gpu_limit
+
+
+def _clean_optional_wrapped_quotes(text: str | None) -> str | None:
+    """Strip a single layer of leading/trailing quote characters when present."""
+    if text is None:
+        return None
+    if len(text) >= 2 and (
+        (text.startswith("'") and text.endswith("'"))
+        or (text.startswith('"') and text.endswith('"'))
+    ):
+        return text[1:-1]
+    return text
+
+
 
 
 def handle_create_sample(
@@ -67,7 +82,7 @@ def handle_create_sample(
                 instrumental=instrumental,
                 vocal_language=vocal_language,
             )
-        except GlmClientError as exc:
+        except ExternalAIClientError as exc:
             status_message = str(exc)
             gr.Warning(status_message)
             return (
@@ -122,11 +137,17 @@ def handle_create_sample(
         )
 
     gr.Info(t("messages.sample_created"))
+    normalized_caption = ensure_caption_has_global_vocal_presence(
+        _clean_optional_wrapped_quotes(result.caption) or "",
+        lyrics=result.lyrics,
+        vocal_language=result.language,
+        instrumental=result.instrumental,
+    )
     clamped_duration = clamp_duration_to_gpu_limit(result.duration, llm_handler)
     audio_duration_value = clamped_duration if clamped_duration and clamped_duration > 0 else -1
     think_value = bool(getattr(llm_handler, "llm_initialized", False) or external_active)
     return (
-        result.caption,
+        normalized_caption,
         result.lyrics,
         result.bpm,
         audio_duration_value,

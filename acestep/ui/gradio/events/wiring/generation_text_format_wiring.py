@@ -151,6 +151,17 @@ def register_generation_text_format_handlers(
         fn=gen_h.uncheck_auto_for_populated_fields,
         inputs=list(auto_checkbox_inputs),
         outputs=list(auto_checkbox_outputs),
+    ).then(
+        fn=gen_h.sync_vocal_language_after_lyrics_generation,
+        inputs=[
+            generation_section["lyrics"],
+            generation_section["vocal_language"],
+        ],
+        outputs=[
+            generation_section["instrumental_checkbox"],
+            generation_section["vocal_lang_auto"],
+            generation_section["vocal_language"],
+        ],
     )
 
     # ========== Random Narrative Caption Button ==========

@@ -59,6 +59,7 @@ def build_custom_mode_controls() -> dict[str, Any]:
 
     with gr.Group(visible=True, elem_classes=["has-info-container"]) as custom_mode_group:
         create_help_button("generation_custom")
+        cluster_button_classes = ["custom-mode-action-btn"]
         with gr.Row(equal_height=True):
             with gr.Column(scale=2, min_width=200):
                 reference_audio = gr.Audio(
@@ -80,6 +81,7 @@ def build_custom_mode_controls() -> dict[str, Any]:
                                 t("generation.format_caption_btn"),
                                 variant="secondary",
                                 size="sm",
+                                elem_classes=cluster_button_classes,
                             )
                     with gr.Column(scale=1):
                         lyrics = gr.Textbox(
@@ -99,18 +101,26 @@ def build_custom_mode_controls() -> dict[str, Any]:
                                 variant="secondary",
                                 size="sm",
                                 scale=2,
+                                elem_classes=cluster_button_classes,
                             )
             with gr.Column(scale=1, min_width=140, elem_classes="icon-btn-wrap"):
-                sample_btn = gr.Button(t("generation.sample_btn"), variant="primary", size="lg")
+                sample_btn = gr.Button(
+                    t("generation.sample_btn"),
+                    variant="primary",
+                    size="lg",
+                    elem_classes=[*cluster_button_classes, "icon-action-btn", "sample-icon-btn"],
+                )
                 random_caption_btn = gr.Button(
                     t("generation.random_narrative_caption_btn"),
                     variant="secondary",
                     size="sm",
+                    elem_classes=[*cluster_button_classes, "icon-action-btn", "random-caption-icon-btn"],
                 )
                 generate_lyrics_btn = gr.Button(
                     t("generation.generate_lyrics_btn"),
                     variant="secondary",
                     size="sm",
+                    elem_classes=[*cluster_button_classes, "icon-action-btn", "generate-lyrics-icon-btn"],
                 )
     return {
         "custom_mode_group": custom_mode_group,

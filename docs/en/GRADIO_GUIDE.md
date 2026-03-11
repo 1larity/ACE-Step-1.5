@@ -87,7 +87,7 @@ Settings accordion.
 
 | Setting | Description |
 |---------|-------------|
-| **Provider** | Built-in provider profiles: Z.ai (GLM), OpenAI, Anthropic Claude, Ollama |
+| **Provider** | Built-in provider profiles: Z.ai, OpenAI, Anthropic Claude, Ollama |
 | **Protocol** | API protocol (`openai_chat` or `anthropic_messages`) |
 | **Model** | Selected external model ID (editable). Use **Fetch Models** to auto-populate from endpoint |
 | **Base URL** | Provider endpoint URL (chat-completions/messages) |
@@ -102,7 +102,7 @@ Settings accordion.
 - Non-secret provider settings are persisted to:
   - `~/.local/share/acestep/config/external_lm_runtime.json`
 - Encrypted provider API keys are stored under:
-  - `~/.local/share/acestep/secrets/` (for example `glm_api_key.enc`)
+  - `~/.local/share/acestep/secrets/` (for example `zai_api_key.enc`)
 - API keys are encrypted at rest using OpenSSL; passphrase is required unless provided by keyring/env.
 
 ### How It Integrates With 5Hz LM

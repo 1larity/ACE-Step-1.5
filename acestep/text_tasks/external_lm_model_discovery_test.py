@@ -54,6 +54,23 @@ class ExternalLmModelDiscoveryTests(unittest.TestCase):
         self.assertEqual("https://api.openai.com/v1/models", req.full_url)
 
     @patch("acestep.text_tasks.external_lm_model_discovery.request.urlopen")
+    def test_openai_model_discovery_filters_responses_only_models(self, urlopen_mock) -> None:
+        """OpenAI discovery should hide models this chat-completions runtime cannot execute."""
+        urlopen_mock.return_value = _FakeHttpResponse(
+            json.dumps({"data": [{"id": "gpt-4o-mini"}, {"id": "codex-mini-latest"}]})
+        )
+
+        models = discover_external_models(
+            provider="openai",
+            protocol="openai_chat",
+            base_url="https://api.openai.com/v1/chat/completions",
+            api_key="sk-test",
+        )
+
+        self.assertEqual(["gpt-4o-mini"], models)
+
+
+    @patch("acestep.text_tasks.external_lm_model_discovery.request.urlopen")
     def test_ollama_falls_back_to_api_tags_when_v1_models_fails(self, urlopen_mock) -> None:
         """Ollama should retry /api/tags when /v1/models is unavailable."""
 

@@ -3,6 +3,9 @@
 import ast
 from pathlib import Path
 import unittest
+from unittest.mock import MagicMock, patch
+
+from acestep.ui.gradio.events.wiring import generation_service_wiring as wiring
 
 
 _WIRING_PATH = Path(__file__).resolve().parent / "generation_service_wiring.py"
@@ -109,6 +112,61 @@ class GenerationServiceWiringTests(unittest.TestCase):
                 break
 
         self.assertTrue(found_save_click, "external_lm_save_btn.click handler was not found")
+
+    @patch("acestep.ui.gradio.events.wiring.generation_service_wiring.activate_external_lm_mode")
+    def test_external_lm_selection_unchecks_local_init(
+        self,
+        activate_mock,
+    ):
+        """Selecting an external LM should turn off local 5Hz initialization."""
+        update = wiring._sync_external_lm_mode_from_dropdown("external:ollama:qwen2.5:14b")
+
+        activate_mock.assert_called_once_with("external:ollama:qwen2.5:14b")
+        self.assertEqual(False, update.get("value"))
+
+    @patch("acestep.ui.gradio.events.wiring.generation_service_wiring.deactivate_external_lm_mode")
+    def test_local_lm_selection_checks_local_init(
+        self,
+        deactivate_mock,
+    ):
+        """Selecting a local LM should turn local 5Hz initialization back on."""
+        update = wiring._sync_external_lm_mode_from_dropdown("acestep-5Hz-lm-1.7B")
+
+        deactivate_mock.assert_called_once()
+        self.assertEqual(True, update.get("value"))
+
+    @patch("acestep.ui.gradio.events.wiring.generation_service_wiring.deactivate_external_lm_mode")
+    def test_init_checkbox_switches_external_selection_back_to_local_model(
+        self,
+        deactivate_mock,
+    ):
+        """Checking 5Hz init should replace external selection with a local LM when available."""
+        llm_handler = MagicMock()
+        llm_handler.get_available_5hz_lm_models.return_value = ["acestep-5Hz-lm-1.7B"]
+
+        checkbox_update, model_update = wiring._sync_lm_selection_from_init_checkbox(
+            True,
+            "external:zai:glm-5",
+            llm_handler=llm_handler,
+        )
+
+        deactivate_mock.assert_called_once()
+        self.assertEqual(True, checkbox_update.get("value"))
+        self.assertEqual("acestep-5Hz-lm-1.7B", model_update.get("value"))
+
+    def test_init_checkbox_reverts_when_no_local_model_is_available(self):
+        """Checking 5Hz init should revert when no local LM can back that choice."""
+        llm_handler = MagicMock()
+        llm_handler.get_available_5hz_lm_models.return_value = []
+
+        checkbox_update, model_update = wiring._sync_lm_selection_from_init_checkbox(
+            True,
+            "external:openai:gpt-4o-mini",
+            llm_handler=llm_handler,
+        )
+
+        self.assertEqual(False, checkbox_update.get("value"))
+        self.assertNotIn("value", model_update)
 
 
 if __name__ == "__main__":

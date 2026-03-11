@@ -56,30 +56,42 @@ def register_generation_service_handlers(
     generation_section["lm_model_path"].change(
         fn=_sync_external_lm_mode_from_dropdown,
         inputs=[generation_section["lm_model_path"]],
+        outputs=[generation_section["init_llm_checkbox"]],
     )
 
     generation_section["external_lm_provider_dropdown"].change(
-        fn=gen_h.load_external_lm_provider_defaults,
+        fn=lambda provider: gen_h.load_external_lm_provider_defaults_with_lm_dropdown(
+            provider,
+            llm_handler=llm_handler,
+        ),
         inputs=[generation_section["external_lm_provider_dropdown"]],
         outputs=[
             generation_section["external_lm_protocol_dropdown"],
             generation_section["external_lm_model_input"],
             generation_section["external_lm_base_url_input"],
             generation_section["external_lm_status"],
+            generation_section["lm_model_path"],
         ],
     )
     generation_section["external_lm_defaults_btn"].click(
-        fn=gen_h.load_external_lm_provider_defaults,
+        fn=lambda provider: gen_h.load_external_lm_provider_defaults_with_lm_dropdown(
+            provider,
+            llm_handler=llm_handler,
+        ),
         inputs=[generation_section["external_lm_provider_dropdown"]],
         outputs=[
             generation_section["external_lm_protocol_dropdown"],
             generation_section["external_lm_model_input"],
             generation_section["external_lm_base_url_input"],
             generation_section["external_lm_status"],
+            generation_section["lm_model_path"],
         ],
     )
     generation_section["external_lm_fetch_models_btn"].click(
-        fn=gen_h.fetch_external_lm_models_from_ui,
+        fn=lambda *args: gen_h.fetch_external_lm_models_from_ui_with_lm_dropdown(
+            *args,
+            llm_handler=llm_handler,
+        ),
         inputs=[
             generation_section["external_lm_provider_dropdown"],
             generation_section["external_lm_protocol_dropdown"],
@@ -90,6 +102,7 @@ def register_generation_service_handlers(
         outputs=[
             generation_section["external_lm_model_input"],
             generation_section["external_lm_status"],
+            generation_section["lm_model_path"],
         ],
     )
     generation_section["external_lm_save_btn"].click(
@@ -251,6 +264,21 @@ def register_generation_service_handlers(
         inputs=[generation_section["init_llm_checkbox"]],
         outputs=[generation_section["lm_negative_prompt"]],
     )
+    generation_section["init_llm_checkbox"].change(
+        fn=lambda init_llm, lm_model_path: _sync_lm_selection_from_init_checkbox(
+            init_llm,
+            lm_model_path,
+            llm_handler=llm_handler,
+        ),
+        inputs=[
+            generation_section["init_llm_checkbox"],
+            generation_section["lm_model_path"],
+        ],
+        outputs=[
+            generation_section["init_llm_checkbox"],
+            generation_section["lm_model_path"],
+        ],
+    )
 
     generation_section["batch_size_input"].change(
         fn=gen_h.update_audio_components_visibility,
@@ -285,9 +313,31 @@ def _apply_runtime_language(language: str) -> dict[str, Any]:
     return gr.update(value=language)
 
 
-def _sync_external_lm_mode_from_dropdown(lm_model_path: str) -> None:
+def _sync_external_lm_mode_from_dropdown(lm_model_path: str) -> dict[str, Any]:
     """Keep external LM mode in sync with the selected LM dropdown value."""
     if is_external_lm_model(lm_model_path):
         activate_external_lm_mode(lm_model_path)
-        return
+        return gr.update(value=False)
     deactivate_external_lm_mode()
+    return gr.update(value=True)
+
+
+def _sync_lm_selection_from_init_checkbox(
+    init_llm: bool,
+    lm_model_path: str,
+    llm_handler: Any | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Keep 5Hz-init checkbox and LM model selection mutually consistent."""
+    if not init_llm:
+        return gr.update(value=False), gr.update()
+
+    if not is_external_lm_model(lm_model_path):
+        return gr.update(value=True), gr.update()
+
+    local_models = llm_handler.get_available_5hz_lm_models() if llm_handler else []
+    local_model_choices = [model for model in (local_models or []) if model]
+    if not local_model_choices:
+        return gr.update(value=False), gr.update()
+
+    deactivate_external_lm_mode()
+    return gr.update(value=True), gr.update(value=local_model_choices[0])

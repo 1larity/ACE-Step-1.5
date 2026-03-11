@@ -114,11 +114,42 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             height: 100% !important;
             min-height: 42px;
         }
-        /* Two-line icon buttons: emoji on top, text below */
+        /* Two-line icon buttons: icon on top, text below */
         .icon-btn-wrap button, .icon-btn-wrap > button {
-            word-spacing: 100vw;
             text-align: center;
-            line-height: 1.4;
+            line-height: 1.25;
+            white-space: normal;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .icon-action-btn button::before,
+        .icon-action-btn > button::before {
+            display: block;
+            font-size: 3rem;
+            line-height: 1;
+            font-weight: 400;
+        }
+        .sample-icon-btn button::before,
+        .sample-icon-btn > button::before {
+            content: "\1F3B2";
+            font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+        }
+        .random-caption-icon-btn button::before,
+        .random-caption-icon-btn > button::before {
+            content: "\2728";
+            font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+        }
+        .generate-lyrics-icon-btn button::before,
+        .generate-lyrics-icon-btn > button::before {
+            content: "\1F4DD";
+            font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+        }
+        /* Rounded corners for custom-mode action button cluster */
+        .custom-mode-action-btn button, .custom-mode-action-btn > button {
+            border-radius: 18px !important;
         }
 
         /* --- On-hover Tooltips --- */

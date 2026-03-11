@@ -1,4 +1,4 @@
-"""Runtime passphrase storage/resolution helpers for external GLM workflows."""
+"""Runtime passphrase storage/resolution helpers for external AI workflows."""
 
 from __future__ import annotations
 
@@ -8,25 +8,31 @@ import subprocess
 from pathlib import Path
 
 
-GLM_SECRET_SERVICE = "acestep.glm"
-GLM_SECRET_USERNAME = "glm_store_passphrase"
+EXTERNAL_AI_SECRET_SERVICE = "acestep.external_ai"
+EXTERNAL_AI_SECRET_USERNAME = "external_ai_store_passphrase"
 _SECRET_TOOL_PATH = "secret-tool"
 
 
 def resolve_runtime_passphrase() -> str | None:
-    """Resolve non-interactive passphrase for encrypted GLM key access."""
-    env_passphrase = os.getenv("ACESTEP_GLM_STORE_PASSPHRASE", "").strip()
+    """Resolve non-interactive passphrase for encrypted external AI key access."""
+    env_passphrase = os.getenv("ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE", "").strip()
     if env_passphrase:
         return env_passphrase
 
-    file_path_raw = os.getenv("ACESTEP_GLM_STORE_PASSPHRASE_FILE", "").strip()
+    file_path_raw = os.getenv("ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE_FILE", "").strip()
     if file_path_raw:
         text = Path(file_path_raw).expanduser().read_text(encoding="utf-8").strip()
         if text:
             return text
 
-    service = os.getenv("ACESTEP_GLM_SECRET_SERVICE", GLM_SECRET_SERVICE).strip()
-    username = os.getenv("ACESTEP_GLM_SECRET_USERNAME", GLM_SECRET_USERNAME).strip()
+    service = os.getenv(
+        "ACESTEP_EXTERNAL_AI_SECRET_SERVICE",
+        EXTERNAL_AI_SECRET_SERVICE,
+    ).strip()
+    username = os.getenv(
+        "ACESTEP_EXTERNAL_AI_SECRET_USERNAME",
+        EXTERNAL_AI_SECRET_USERNAME,
+    ).strip()
 
     secret_tool_passphrase = _load_passphrase_from_secret_tool(
         service=service,
@@ -49,8 +55,14 @@ def store_runtime_passphrase(passphrase: str) -> tuple[bool, str]:
     if not passphrase:
         return False, "Passphrase cannot be empty."
 
-    service = os.getenv("ACESTEP_GLM_SECRET_SERVICE", GLM_SECRET_SERVICE).strip()
-    username = os.getenv("ACESTEP_GLM_SECRET_USERNAME", GLM_SECRET_USERNAME).strip()
+    service = os.getenv(
+        "ACESTEP_EXTERNAL_AI_SECRET_SERVICE",
+        EXTERNAL_AI_SECRET_SERVICE,
+    ).strip()
+    username = os.getenv(
+        "ACESTEP_EXTERNAL_AI_SECRET_USERNAME",
+        EXTERNAL_AI_SECRET_USERNAME,
+    ).strip()
 
     ok_secret_tool, msg_secret_tool = _store_passphrase_in_secret_tool(
         service=service,
@@ -104,7 +116,7 @@ def _store_passphrase_in_secret_tool(
             tool_path,
             "store",
             "--label",
-            "ACE-Step GLM store passphrase",
+            "ACE-Step External AI store passphrase",
             "service",
             service,
             "username",
@@ -152,4 +164,3 @@ def _store_passphrase_in_keyring(
     except Exception:
         return False, "Failed writing passphrase with python keyring"
     return True, f"Stored passphrase in python keyring ({service}/{username})"
-

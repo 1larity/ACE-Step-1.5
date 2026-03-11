@@ -10,7 +10,11 @@ from .external_lm_providers import (
     build_external_model_choice,
     get_external_provider_profile,
 )
-from .external_lm_runtime_store import hydrate_external_lm_env_from_store
+from .external_lm_runtime_store import (
+    hydrate_external_lm_env_from_store,
+    load_all_external_lm_runtime_settings,
+    load_external_lm_runtime_settings_for_provider,
+)
 from .passphrase_store import resolve_runtime_passphrase
 from .secure_secret_store import EncryptedSecretStore, SecretStoreError
 
@@ -27,12 +31,7 @@ class ExternalLmSelection:
 
 
 def get_external_lm_choices() -> list[str]:
-    """Return dropdown model choices for configured external LM selections.
-
-    By default this returns at most one external entry, reflecting current
-    runtime configuration (provider + model). This keeps the service dropdown
-    focused on built-in 5Hz models plus the actively configured external model.
-    """
+    """Return dropdown model choices for all configured external LM selections."""
     hydrate_external_lm_env_from_store()
     raw = os.getenv("ACESTEP_EXTERNAL_LM_CHOICES", "").strip()
     if raw:
@@ -40,20 +39,15 @@ def get_external_lm_choices() -> list[str]:
         if values:
             return values
 
-    provider = _normalize_provider(os.getenv("ACESTEP_EXTERNAL_LM_PROVIDER", "").strip() or "zai")
-    model = os.getenv("ACESTEP_EXTERNAL_LM_MODEL", "").strip()
-
-    # Legacy compatibility for older GLM-only configuration.
-    if not model and provider == "zai":
-        model = os.getenv("ACESTEP_GLM_MODEL", "").strip()
-
-    if not model and os.getenv("ACESTEP_EXTERNAL_LM_ENABLED", "").lower() in {"1", "true", "yes"}:
-        model = get_external_provider_profile(provider).default_model
-
-    if not model:
-        return []
-
-    return [build_external_model_choice(provider, model)]
+    configured_choices = [
+        build_external_model_choice(provider_id, settings["model"])
+        for provider_id, settings in load_all_external_lm_runtime_settings().items()
+        if settings.get("model", "").strip()
+    ]
+    current_choice = _build_current_external_choice()
+    if current_choice:
+        configured_choices.append(current_choice)
+    return list(dict.fromkeys(configured_choices))
 
 
 def is_external_lm_model(model_path: str | None) -> bool:
@@ -70,7 +64,6 @@ def parse_external_lm_selection(model_path: str | None) -> ExternalLmSelection |
     if not token:
         return None
 
-    # Legacy format: external:glm-4.5-flash
     if ":" not in token:
         return ExternalLmSelection(provider="zai", model=token)
 
@@ -90,16 +83,20 @@ def activate_external_lm_mode(model_path: str | None) -> ExternalLmSelection | N
         return None
 
     profile = get_external_provider_profile(selection.provider)
+    saved_settings = load_external_lm_runtime_settings_for_provider(selection.provider)
+    protocol = (saved_settings or {}).get("protocol", "").strip() or profile.protocol
+    base_url = (saved_settings or {}).get("base_url", "").strip() or profile.default_base_url
+
     os.environ["ACESTEP_EXTERNAL_LM_ENABLED"] = "true"
     os.environ["ACESTEP_EXTERNAL_LM_PROVIDER"] = profile.provider_id
     os.environ["ACESTEP_EXTERNAL_LM_MODEL"] = selection.model
-    os.environ["ACESTEP_EXTERNAL_LM_PROTOCOL"] = profile.protocol
-    os.environ.setdefault("ACESTEP_EXTERNAL_BASE_URL", profile.default_base_url)
+    os.environ["ACESTEP_EXTERNAL_LM_PROTOCOL"] = protocol
+    os.environ["ACESTEP_EXTERNAL_BASE_URL"] = base_url
     os.environ["ACESTEP_TEXT_PROVIDER"] = profile.provider_id
 
     if profile.provider_id == "zai":
-        os.environ["ACESTEP_GLM_MODEL"] = selection.model
-        os.environ.setdefault("ACESTEP_GLM_BASE_URL", profile.default_base_url)
+        os.environ["ACESTEP_ZAI_MODEL"] = selection.model
+        os.environ["ACESTEP_ZAI_BASE_URL"] = base_url
 
     return selection
 
@@ -134,7 +131,7 @@ def get_active_external_lm_model(default: str = "glm-4.5-flash") -> str:
     provider_default = get_external_provider_profile(provider).default_model
     return (
         os.getenv("ACESTEP_EXTERNAL_LM_MODEL", "").strip()
-        or os.getenv("ACESTEP_GLM_MODEL", "").strip()
+        or os.getenv("ACESTEP_ZAI_MODEL", "").strip()
         or provider_default
         or default
     )
@@ -165,23 +162,37 @@ def resolve_external_api_key_for_runtime(provider: str | None = None) -> str:
     if not passphrase:
         raise SecretStoreError(
             f"Missing {profile.label} credentials. Set {profile.api_key_env} or "
-            "configure encrypted-store passphrase via ACESTEP_GLM_STORE_PASSPHRASE, "
-            "ACESTEP_GLM_STORE_PASSPHRASE_FILE, or system keyring setup."
+            "configure encrypted-store passphrase via ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE, "
+            "ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE_FILE, or system keyring setup."
         )
 
     store = _resolve_secret_store(profile.provider_id)
     return store.load(passphrase=passphrase).strip()
 
 
-def resolve_glm_api_key_for_runtime() -> str:
-    """Resolve Z.ai/GLM API key from env or encrypted user-local secret store."""
+def resolve_zai_api_key_for_runtime() -> str:
+    """Resolve the active Z.ai API key from env or encrypted secret storage."""
     return resolve_external_api_key_for_runtime("zai")
+
+
+def _build_current_external_choice() -> str | None:
+    """Build the current runtime external-model dropdown token, if configured."""
+    provider = _normalize_provider(os.getenv("ACESTEP_EXTERNAL_LM_PROVIDER", "").strip() or "zai")
+    model = os.getenv("ACESTEP_EXTERNAL_LM_MODEL", "").strip()
+
+
+    if not model and os.getenv("ACESTEP_EXTERNAL_LM_ENABLED", "").lower() in {"1", "true", "yes"}:
+        model = get_external_provider_profile(provider).default_model
+
+    if not model:
+        return None
+    return build_external_model_choice(provider, model)
 
 
 def _normalize_provider(provider: str | None) -> str:
     """Normalize provider aliases to stable internal provider identifiers."""
     token = (provider or "").strip().lower()
-    if token in {"", "glm", "zhipu", "zai"}:
+    if token in {"", "zhipu", "zai"}:
         return "zai"
     if token in {"anthropic", "claud", "claude"}:
         return "claude"
@@ -193,11 +204,10 @@ def _normalize_provider(provider: str | None) -> str:
 def _direct_api_key_env_candidates(provider: str) -> list[str]:
     """Return candidate API-key env vars in lookup priority order."""
     profile = get_external_provider_profile(provider)
-    candidates = ["ACESTEP_EXTERNAL_API_KEY", profile.api_key_env]
-    if provider == "zai":
-        candidates.insert(1, "ACESTEP_GLM_API_KEY")
-    if provider == "claude":
+    candidates = [profile.api_key_env]
+    if provider == "claude" and "ACESTEP_CLAUDE_API_KEY" != profile.api_key_env:
         candidates.append("ACESTEP_CLAUDE_API_KEY")
+    candidates.append("ACESTEP_EXTERNAL_API_KEY")
     return candidates
 
 

@@ -298,14 +298,14 @@ If you use cloud/provider-based language models for sample/format/Think tasks, y
 credentials either in the Gradio **External LLM** tab or via CLI helpers:
 
 ```bash
-# Store encrypted GLM key (+ optional keyring passphrase save)
-uv run python scripts/glm_setup.py setup
+# Store encrypted external AI key (+ optional keyring passphrase save)
+uv run python scripts/external_ai_setup.py setup
 
 # Check external runtime readiness
-uv run python scripts/glm_setup.py doctor
+uv run python scripts/external_ai_setup.py doctor
 
 # Run an external text planning task directly
-uv run python scripts/glm_text_tasks.py plan --intent "Ethereal orchestral track with hopeful chorus"
+uv run python scripts/external_ai_text_tasks.py plan --intent "Ethereal orchestral track with hopeful chorus"
 ```
 
 For Z.ai Coding Plan quotas, use the coding endpoint/model lane when required by your account.

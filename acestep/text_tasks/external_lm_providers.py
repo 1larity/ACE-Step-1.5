@@ -23,14 +23,14 @@ class ExternalProviderProfile:
 _EXTERNAL_PROVIDER_PROFILES: dict[str, ExternalProviderProfile] = {
     "zai": ExternalProviderProfile(
         provider_id="zai",
-        label="Z.ai (GLM)",
+        label="Z.ai",
         protocol="openai_chat",
         default_model="glm-4.5-flash",
         default_base_url="https://api.z.ai/api/paas/v4/chat/completions",
-        api_key_env="ACESTEP_GLM_API_KEY",
+        api_key_env="ACESTEP_ZAI_API_KEY",
         api_key_required=True,
-        secret_path_env="ACESTEP_GLM_SECRET_PATH",
-        secret_file_name="glm_api_key.enc",
+        secret_path_env="ACESTEP_ZAI_SECRET_PATH",
+        secret_file_name="zai_api_key.enc",
     ),
     "openai": ExternalProviderProfile(
         provider_id="openai",

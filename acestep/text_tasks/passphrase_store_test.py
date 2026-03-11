@@ -13,9 +13,14 @@ from acestep.text_tasks.passphrase_store import resolve_runtime_passphrase, stor
 class PassphraseStoreTests(unittest.TestCase):
     """Validate secure passphrase helper resolution order and storage paths."""
 
-    @patch.dict("os.environ", {"ACESTEP_GLM_STORE_PASSPHRASE": "env-pass"}, clear=True)
+    @patch.dict("os.environ", {"ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE": "env-pass"}, clear=True)
     def test_resolve_runtime_passphrase_uses_env_first(self) -> None:
         """Env passphrase should take precedence over other backends."""
+        self.assertEqual("env-pass", resolve_runtime_passphrase())
+
+    @patch.dict("os.environ", {"ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE": "env-pass"}, clear=True)
+    def test_resolve_runtime_passphrase_uses_external_ai_env_alias_first(self) -> None:
+        """Generic External AI env alias should be accepted for passphrase lookup."""
         self.assertEqual("env-pass", resolve_runtime_passphrase())
 
     @patch.dict("os.environ", {}, clear=True)
@@ -26,7 +31,7 @@ class PassphraseStoreTests(unittest.TestCase):
             path.write_text("file-pass\n", encoding="utf-8")
             with patch.dict(
                 "os.environ",
-                {"ACESTEP_GLM_STORE_PASSPHRASE_FILE": str(path)},
+                {"ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE_FILE": str(path)},
                 clear=True,
             ):
                 self.assertEqual("file-pass", resolve_runtime_passphrase())

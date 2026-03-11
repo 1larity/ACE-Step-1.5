@@ -7,7 +7,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from acestep.text_tasks.external_lm_tasks import GlmClientError
+from acestep.text_tasks.external_lm_tasks import ExternalAIClientError
 from acestep.ui.gradio.events.results import generation_progress
 
 
@@ -131,7 +131,7 @@ class GenerationProgressExternalCotTests(unittest.TestCase):
             keyscale="D minor",
             language="en",
             timesignature="4/4",
-            status_message="External GLM format completed (glm-4.5-flash)",
+            status_message="External AI format completed (glm-4.5-flash)",
         )
 
         outputs, call_kwargs = self._run_once(llm_initialized=False)
@@ -141,12 +141,15 @@ class GenerationProgressExternalCotTests(unittest.TestCase):
         self.assertFalse(params.use_cot_metas)
         self.assertFalse(params.use_cot_caption)
         self.assertFalse(params.use_cot_language)
-        self.assertEqual("external caption", params.caption)
+        self.assertEqual(
+            "Lead vocals stay present from the opening section onward. Core instrumentation is established from the opening section and stays central throughout. external caption",
+            params.caption,
+        )
         self.assertEqual(110, params.bpm)
         self.assertEqual("D minor", params.keyscale)
         self.assertEqual("en", params.vocal_language)
         self.assertEqual(1, len(outputs))
-        self.assertIn("External GLM", outputs[0][10])
+        self.assertIn("External AI", outputs[0][10])
 
     @patch.object(generation_progress, "is_external_lm_active", return_value=True)
     @patch.object(generation_progress, "format_sample_with_external_provider")
@@ -169,7 +172,7 @@ class GenerationProgressExternalCotTests(unittest.TestCase):
     @patch.object(
         generation_progress,
         "format_sample_with_external_provider",
-        side_effect=GlmClientError("temporary external error"),
+        side_effect=ExternalAIClientError("temporary external error"),
     )
     def test_external_cot_error_disables_local_lm_flags_and_continues(
         self,
@@ -184,7 +187,7 @@ class GenerationProgressExternalCotTests(unittest.TestCase):
         self.assertFalse(params.use_cot_caption)
         self.assertFalse(params.use_cot_language)
         self.assertEqual(1, len(outputs))
-        self.assertIn("External GLM CoT warning", outputs[0][10])
+        self.assertIn("External AI CoT warning", outputs[0][10])
 
 
 if __name__ == "__main__":

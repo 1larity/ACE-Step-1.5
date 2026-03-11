@@ -49,17 +49,18 @@ from .generation.llm_actions import (  # noqa: F401
 )
 from .generation.external_lm_setup_actions import (  # noqa: F401
     check_external_lm_runtime_from_ui,
-    check_glm_runtime_from_ui,
     fetch_external_lm_models_from_ui,
+    fetch_external_lm_models_from_ui_with_lm_dropdown,
     load_external_lm_provider_defaults,
+    load_external_lm_provider_defaults_with_lm_dropdown,
     save_external_lm_settings_from_ui,
-    save_glm_credentials_from_ui,
 )
 from .generation.ui_helpers import (  # noqa: F401
     update_negative_prompt_visibility,
     on_auto_checkbox_change,
     reset_all_auto,
     uncheck_auto_for_populated_fields,
+    sync_vocal_language_after_lyrics_generation,
     update_audio_cover_strength_visibility,
     convert_src_audio_to_codes_wrapper,
     update_instruction_ui,

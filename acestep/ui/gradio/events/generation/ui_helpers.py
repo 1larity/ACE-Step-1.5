@@ -7,7 +7,8 @@ instrumental handling, and other lightweight UI helpers.
 import gradio as gr
 from typing import Optional
 
-from acestep.ui.gradio.i18n import t
+from acestep.constants import VALID_LANGUAGES
+from acestep.ui.gradio.i18n import get_i18n, t
 from .validation import _has_reference_audio
 
 
@@ -95,6 +96,37 @@ def uncheck_auto_for_populated_fields(bpm, key_scale, time_signature, vocal_lang
         gr.update(interactive=ts_has_value),
         gr.update(interactive=vl_has_value),
         gr.update(interactive=dur_has_value),
+    )
+
+
+def sync_vocal_language_after_lyrics_generation(lyrics, vocal_language):
+    """Force the UI into a vocal-language state when generated lyrics contain vocals.
+
+    Args:
+        lyrics: Current lyrics textbox value after lyric generation.
+        vocal_language: Current vocal-language dropdown value.
+
+    Returns:
+        Tuple of updates for instrumental checkbox, vocal-language auto checkbox,
+        and vocal-language dropdown.
+    """
+    stripped_lyrics = (lyrics or "").strip()
+    if not stripped_lyrics or stripped_lyrics.lower() == "[instrumental]":
+        return gr.update(), gr.update(), gr.update()
+
+    normalized_language = (vocal_language or "").strip().lower()
+    if normalized_language not in VALID_LANGUAGES or normalized_language == "unknown":
+        ui_language = getattr(get_i18n(), "current_language", "")
+        normalized_ui_language = (ui_language or "").strip().lower()
+        if normalized_ui_language in VALID_LANGUAGES and normalized_ui_language != "unknown":
+            normalized_language = normalized_ui_language
+        else:
+            normalized_language = "en"
+
+    return (
+        gr.update(value=False),
+        gr.update(value=False),
+        gr.update(value=normalized_language, interactive=True),
     )
 
 

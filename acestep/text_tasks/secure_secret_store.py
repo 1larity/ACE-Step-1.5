@@ -1,7 +1,7 @@
 """Encrypted local secret storage for external text-task API credentials.
 
 This module stores secrets under user-local persistent data directories using
-OpenSSL symmetric encryption, avoiding plaintext key files on disk.
+OpenSSL symmetric encryption, while using a Windows-safe passphrase handoff.
 """
 
 from __future__ import annotations
@@ -11,6 +11,9 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+
+_OPENSSL_PASSPHRASE_ENV = "ACESTEP_OPENSSL_PASSPHRASE"
 
 
 class SecretStoreError(RuntimeError):
@@ -37,7 +40,7 @@ class EncryptedSecretStore:
         object.__setattr__(self, "openssl_path", openssl_binary)
 
     @staticmethod
-    def default_path(filename: str = "glm_api_key.enc") -> Path:
+    def default_path(filename: str = "external_ai_api_key.enc") -> Path:
         """Return default encrypted secret path in persistent user data storage."""
         xdg_data_home = os.getenv("XDG_DATA_HOME")
         base = (
@@ -48,12 +51,12 @@ class EncryptedSecretStore:
         return base / "acestep" / "secrets" / filename
 
     @staticmethod
-    def legacy_default_path(filename: str = "glm_api_key.enc") -> Path:
+    def legacy_default_path(filename: str = "external_ai_api_key.enc") -> Path:
         """Return historical encrypted secret path under ``~/.local/share``."""
         return Path.home() / ".local" / "share" / "acestep" / "secrets" / filename
 
     @staticmethod
-    def resolve_existing_default_path(filename: str = "glm_api_key.enc") -> Path:
+    def resolve_existing_default_path(filename: str = "external_ai_api_key.enc") -> Path:
         """Return existing default path with legacy fallback when available."""
         primary = EncryptedSecretStore.default_path(filename=filename)
         if primary.exists():
@@ -152,7 +155,47 @@ class EncryptedSecretStore:
         passphrase: str,
         stdin_bytes: bytes | None,
     ) -> subprocess.CompletedProcess[bytes]:
-        """Execute OpenSSL with passphrase provided via private file descriptor."""
+        """Execute OpenSSL with a platform-safe passphrase handoff."""
+        if os.name == "nt":
+            return self._run_openssl_windows(
+                args=args,
+                passphrase=passphrase,
+                stdin_bytes=stdin_bytes,
+            )
+        return self._run_openssl_posix(
+            args=args,
+            passphrase=passphrase,
+            stdin_bytes=stdin_bytes,
+        )
+
+    def _run_openssl_windows(
+        self,
+        *,
+        args: list[str],
+        passphrase: str,
+        stdin_bytes: bytes | None,
+    ) -> subprocess.CompletedProcess[bytes]:
+        """Execute OpenSSL on Windows without unsupported ``pass_fds`` usage."""
+        env = os.environ.copy()
+        env[_OPENSSL_PASSPHRASE_ENV] = passphrase
+        cmd = [self.openssl_path, *args, "-pass", f"env:{_OPENSSL_PASSPHRASE_ENV}"]
+        return subprocess.run(
+            cmd,
+            input=stdin_bytes,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            check=False,
+        )
+
+    def _run_openssl_posix(
+        self,
+        *,
+        args: list[str],
+        passphrase: str,
+        stdin_bytes: bytes | None,
+    ) -> subprocess.CompletedProcess[bytes]:
+        """Execute OpenSSL on POSIX via a private passphrase file descriptor."""
         pass_r, pass_w = os.pipe()
         try:
             os.write(pass_w, passphrase.encode("utf-8"))

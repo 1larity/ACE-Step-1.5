@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GLM text-task preprocessor for ACE-Step caption/lyrics/metadata planning."""
+"""External AI text-task preprocessor for ACE-Step caption/lyrics/metadata planning."""
 
 from __future__ import annotations
 
@@ -10,19 +10,19 @@ import os
 import sys
 from pathlib import Path
 
-from acestep.text_tasks.glm_text_tasks import (
+from acestep.text_tasks.external_ai_text_tasks import (
     build_acestep_generation_payload,
-    request_glm_plan,
+    request_external_ai_plan,
 )
 from acestep.text_tasks.secure_secret_store import EncryptedSecretStore, SecretStoreError
 
 
-DEFAULT_GLM_BASE_URL = "https://api.z.ai/api/paas/v4/chat/completions"
-DEFAULT_GLM_MODEL = "glm-4.5-flash"
+DEFAULT_ZAI_BASE_URL = "https://api.z.ai/api/paas/v4/chat/completions"
+DEFAULT_ZAI_MODEL = "glm-4.5-flash"
 
 
 def _build_store(path_override: str | None) -> EncryptedSecretStore:
-    env_path = os.getenv("ACESTEP_GLM_SECRET_PATH", "").strip()
+    env_path = os.getenv("ACESTEP_ZAI_SECRET_PATH", "").strip()
     if path_override or env_path:
         final = Path(path_override or env_path).expanduser()
     else:
@@ -33,7 +33,7 @@ def _build_store(path_override: str | None) -> EncryptedSecretStore:
 def _resolve_passphrase(raw: str | None, *, confirm: bool = False) -> str:
     if raw:
         return raw
-    env_value = os.getenv("ACESTEP_GLM_STORE_PASSPHRASE", "")
+    env_value = os.getenv("ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE", "")
     if env_value:
         return env_value
 
@@ -48,10 +48,10 @@ def _resolve_passphrase(raw: str | None, *, confirm: bool = False) -> str:
 def _resolve_api_key(raw: str | None) -> str:
     if raw:
         return raw.strip()
-    env_value = os.getenv("ACESTEP_GLM_API_KEY", "").strip()
+    env_value = os.getenv("ACESTEP_ZAI_API_KEY", "").strip()
     if env_value:
         return env_value
-    return getpass.getpass("GLM API key (input hidden): ").strip()
+    return getpass.getpass("Z.ai API key (input hidden): ").strip()
 
 
 def _resolve_intent(raw: str | None) -> str:
@@ -80,7 +80,7 @@ def _cmd_set_key(args: argparse.Namespace) -> int:
     api_key = _resolve_api_key(args.api_key)
     passphrase = _resolve_passphrase(args.passphrase, confirm=True)
     store.save(secret=api_key, passphrase=passphrase)
-    print(f"Stored encrypted GLM API key at: {store.secret_path}")
+    print(f"Stored encrypted external AI API key at: {store.secret_path}")
     return 0
 
 
@@ -99,10 +99,10 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         api_key = store.load(passphrase=passphrase)
 
     intent = _resolve_intent(args.intent)
-    model = args.model or os.getenv("ACESTEP_GLM_MODEL", DEFAULT_GLM_MODEL)
-    base_url = args.base_url or os.getenv("ACESTEP_GLM_BASE_URL", DEFAULT_GLM_BASE_URL)
+    model = args.model or os.getenv("ACESTEP_ZAI_MODEL", DEFAULT_ZAI_MODEL)
+    base_url = args.base_url or os.getenv("ACESTEP_ZAI_BASE_URL", DEFAULT_ZAI_BASE_URL)
 
-    plan = request_glm_plan(
+    plan = request_external_ai_plan(
         api_key=api_key,
         intent=intent,
         model=model,
@@ -126,7 +126,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     set_key = sub.add_parser(
         "set-key",
-        help="Store GLM API key in encrypted user-local storage",
+        help="Store external AI API key in encrypted user-local storage",
     )
     set_key.add_argument("--api-key", help="API key value (omit to input hidden)")
     set_key.add_argument("--passphrase", help="Secret-store passphrase (omit to prompt)")
@@ -135,14 +135,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     clear_key = sub.add_parser(
         "clear-key",
-        help="Delete encrypted GLM key from storage",
+        help="Delete encrypted external AI key from storage",
     )
     clear_key.add_argument("--store-path", help="Override encrypted key file path")
     clear_key.set_defaults(func=_cmd_clear_key)
 
     plan = sub.add_parser(
         "plan",
-        help="Generate caption/lyrics/metadata plan from intent via GLM",
+        help="Generate caption/lyrics/metadata plan from intent via external AI",
     )
     plan.add_argument("--intent", help="Natural-language intent (or pipe via stdin)")
     plan.add_argument(
@@ -150,8 +150,8 @@ def _build_parser() -> argparse.ArgumentParser:
         default="all",
         help="Task focus: all|caption|lyrics|planning",
     )
-    plan.add_argument("--model", help=f"GLM model (default: {DEFAULT_GLM_MODEL})")
-    plan.add_argument("--base-url", help=f"GLM endpoint (default: {DEFAULT_GLM_BASE_URL})")
+    plan.add_argument("--model", help=f"Z.ai model (default: {DEFAULT_ZAI_MODEL})")
+    plan.add_argument("--base-url", help=f"Z.ai endpoint (default: {DEFAULT_ZAI_BASE_URL})")
     plan.add_argument("--timeout", type=int, default=60, help="HTTP timeout in seconds")
     plan.add_argument("--api-key", help="API key override (skips encrypted store)")
     plan.add_argument("--passphrase", help="Secret-store passphrase (omit to prompt/env)")
@@ -168,7 +168,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    """Run GLM text-task CLI."""
+    """Run external AI text-task CLI."""
     parser = _build_parser()
     args = parser.parse_args()
     try:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,7 +12,9 @@ from acestep.text_tasks.secure_secret_store import SecretStoreError
 from acestep.ui.gradio.events.generation.external_lm_setup_actions import (
     check_external_lm_runtime_from_ui,
     fetch_external_lm_models_from_ui,
+    fetch_external_lm_models_from_ui_with_lm_dropdown,
     load_external_lm_provider_defaults,
+    load_external_lm_provider_defaults_with_lm_dropdown,
     save_external_lm_settings_from_ui,
 )
 
@@ -19,7 +22,11 @@ from acestep.ui.gradio.events.generation.external_lm_setup_actions import (
 class ExternalLmSetupActionsTests(unittest.TestCase):
     """Validate external LLM setup tab action behavior."""
 
-    def test_load_provider_defaults_populates_protocol_model_and_base_url(self) -> None:
+    @patch(
+        "acestep.ui.gradio.events.generation.external_lm_setup_actions.load_external_lm_runtime_settings_for_provider",
+        return_value=None,
+    )
+    def test_load_provider_defaults_populates_protocol_model_and_base_url(self, _load_saved_mock) -> None:
         """Selecting provider defaults should update protocol/model/base URL controls."""
         protocol_update, model_update, base_url_update, status = load_external_lm_provider_defaults(
             "openai"
@@ -31,6 +38,65 @@ class ExternalLmSetupActionsTests(unittest.TestCase):
         self.assertEqual("https://api.openai.com/v1/chat/completions", base_url_update.get("value"))
         self.assertIn("Provider: OpenAI", status)
         self.assertNotIn("Coding Plan tip", status)
+
+    @patch(
+        "acestep.ui.gradio.events.generation.external_lm_setup_actions.load_external_lm_runtime_settings_for_provider",
+        return_value={
+            "provider": "ollama",
+            "protocol": "openai_chat",
+            "model": "qwen2.5:14b",
+            "base_url": "http://127.0.0.1:11434/v1/chat/completions",
+        },
+    )
+    def test_load_provider_defaults_prefers_saved_provider_preferences(
+        self,
+        _load_saved_mock,
+    ) -> None:
+        """Selecting a provider should reuse previously saved non-secret provider settings."""
+        protocol_update, model_update, base_url_update, status = load_external_lm_provider_defaults(
+            "ollama"
+        )
+
+        self.assertEqual("openai_chat", protocol_update.get("value"))
+        self.assertEqual("qwen2.5:14b", model_update.get("value"))
+        self.assertEqual(
+            ["qwen2.5:14b", "llama3.1:8b-instruct"],
+            model_update.get("choices"),
+        )
+        self.assertEqual(
+            "http://127.0.0.1:11434/v1/chat/completions",
+            base_url_update.get("value"),
+        )
+        self.assertIn("Loaded saved provider preferences.", status)
+
+    @patch(
+        "acestep.ui.gradio.events.generation.external_lm_setup_actions.load_external_lm_runtime_settings_for_provider",
+        return_value=None,
+    )
+    @patch("acestep.ui.gradio.events.generation.external_lm_setup_actions.get_external_lm_choices", return_value=["external:zai:glm-5"])
+    def test_load_provider_defaults_with_dropdown_keeps_saved_entries_visible(
+        self,
+        _choices_mock,
+        _load_saved_mock,
+    ) -> None:
+        """Loading provider defaults should preview the provider in service config without dropping existing entries."""
+        llm_handler = MagicMock()
+        llm_handler.get_available_5hz_lm_models.return_value = ["acestep-5Hz-lm-1.7B"]
+
+        _, _, _, _, lm_model_update = load_external_lm_provider_defaults_with_lm_dropdown(
+            "ollama",
+            llm_handler=llm_handler,
+        )
+
+        self.assertEqual(
+            [
+                "acestep-5Hz-lm-1.7B",
+                "external:zai:glm-5",
+                "external:ollama:llama3.1:8b-instruct",
+            ],
+            lm_model_update.get("choices"),
+        )
+        self.assertNotIn("value", lm_model_update)
 
     def test_load_zai_defaults_includes_coding_plan_tip(self) -> None:
         """Z.ai defaults status should include guidance for coding-plan endpoint usage."""
@@ -59,6 +125,44 @@ class ExternalLmSetupActionsTests(unittest.TestCase):
         self.assertEqual(["gpt-4o-mini", "gpt-4.1-mini"], model_update.get("choices"))
         self.assertEqual("gpt-4o-mini", model_update.get("value"))
         self.assertIn("Discovered models: 2", status)
+        discover_mock.assert_called_once()
+
+    @patch("acestep.ui.gradio.events.generation.external_lm_setup_actions.get_external_lm_choices", return_value=["external:zai:glm-5"])
+    @patch(
+        "acestep.ui.gradio.events.generation.external_lm_setup_actions.discover_external_models",
+        return_value=["qwen2.5:14b", "llama3.2:latest"],
+    )
+    @patch("acestep.ui.gradio.events.generation.external_lm_setup_actions.gr.Info")
+    def test_fetch_models_with_dropdown_previews_new_external_model_without_save(
+        self,
+        _info_mock,
+        discover_mock,
+        _choices_mock,
+    ) -> None:
+        """Fetched provider models should appear in the service dropdown before save."""
+        llm_handler = MagicMock()
+        llm_handler.get_available_5hz_lm_models.return_value = ["acestep-5Hz-lm-1.7B"]
+
+        model_update, status, lm_model_update = fetch_external_lm_models_from_ui_with_lm_dropdown(
+            provider="ollama",
+            protocol="openai_chat",
+            base_url="http://127.0.0.1:11434/v1/chat/completions",
+            api_key="",
+            current_model="",
+            llm_handler=llm_handler,
+        )
+
+        self.assertEqual(["qwen2.5:14b", "llama3.2:latest"], model_update.get("choices"))
+        self.assertEqual("qwen2.5:14b", model_update.get("value"))
+        self.assertIn("Discovered models: 2", status)
+        self.assertEqual(
+            [
+                "acestep-5Hz-lm-1.7B",
+                "external:zai:glm-5",
+                "external:ollama:qwen2.5:14b",
+            ],
+            lm_model_update.get("choices"),
+        )
         discover_mock.assert_called_once()
 
     @patch("acestep.ui.gradio.events.generation.external_lm_setup_actions.gr.Warning")
@@ -143,17 +247,18 @@ class ExternalLmSetupActionsTests(unittest.TestCase):
         ]
         save_runtime_settings_mock.return_value = Path("/tmp/external_lm_runtime.json")
 
-        with patch.dict("os.environ", {}, clear=True):
-            _, _, _, lm_model_update = save_external_lm_settings_from_ui(
-                provider="zai",
-                protocol="openai_chat",
-                model="glm-5",
-                base_url="https://api.z.ai/api/paas/v4/chat/completions",
-                api_key="sk-test",
-                store_passphrase="",
-                save_passphrase_to_keyring=False,
-                llm_handler=llm_handler,
-            )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict("os.environ", {"XDG_DATA_HOME": tmpdir}, clear=True):
+                _, _, _, lm_model_update = save_external_lm_settings_from_ui(
+                    provider="zai",
+                    protocol="openai_chat",
+                    model="glm-5",
+                    base_url="https://api.z.ai/api/paas/v4/chat/completions",
+                    api_key="sk-test",
+                    store_passphrase="",
+                    save_passphrase_to_keyring=False,
+                    llm_handler=llm_handler,
+                )
 
         self.assertEqual("external:zai:glm-5", lm_model_update.get("value"))
         self.assertEqual(
@@ -228,10 +333,10 @@ class ExternalLmSetupActionsTests(unittest.TestCase):
     ) -> None:
         """Doctor should flag when UI model differs from saved runtime model env."""
         store_instance = MagicMock()
-        store_instance.secret_path = Path("/tmp/glm_api_key.enc")
+        store_instance.secret_path = Path("/tmp/zai_api_key.enc")
         store_instance.exists.return_value = True
         store_instance.load.return_value = "key"
-        store_cls_mock.resolve_existing_default_path.return_value = Path("/tmp/glm_api_key.enc")
+        store_cls_mock.resolve_existing_default_path.return_value = Path("/tmp/zai_api_key.enc")
         store_cls_mock.return_value = store_instance
 
         with patch.dict(
@@ -239,7 +344,7 @@ class ExternalLmSetupActionsTests(unittest.TestCase):
             {
                 "ACESTEP_EXTERNAL_LM_MODEL": "glm-4.5-flash",
                 "ACESTEP_EXTERNAL_LM_ENABLED": "true",
-                "ACESTEP_GLM_STORE_PASSPHRASE": "pass",
+                "ACESTEP_EXTERNAL_AI_STORE_PASSPHRASE": "pass",
             },
             clear=True,
         ):
