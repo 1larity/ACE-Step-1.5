@@ -175,7 +175,7 @@ Claude uses the Anthropic messages API path. Make sure the provider, protocol, e
 
 These UI actions can use the selected external model:
 
-- **Create Sample**
+- **Create Sample** - not supported by external models until routing is implemented
 - **Random Narrative Caption**
 - **Enhance Caption**
 - **Enhance Lyrics**
