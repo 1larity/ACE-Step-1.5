@@ -10,6 +10,8 @@ This guide provides comprehensive documentation for using the ACE-Step Gradio we
 
 - [Getting Started](#getting-started)
 - [Service Configuration](#service-configuration)
+- [External LLM Configuration](#external-llm-configuration)
+- [External AI Setup Guide](EXTERNAL_AI_GUIDE.md)
 - [Generation Modes](#generation-modes)
 - [Input Parameters](#input-parameters)
 - [Advanced Settings](#advanced-settings)
@@ -66,6 +68,42 @@ The Gradio interface is organized as follows:
 | **Initialize 5Hz LM** | Check to load the LM during initialization (required for thinking mode). **Automatically unchecked and disabled on GPUs ≤6GB** (Tier 1-2). |
 
 > **Adaptive Defaults**: All LM settings are automatically configured based on your GPU's VRAM tier. The recommended LM model, backend, and initialization state are pre-set for optimal performance. You can manually override these, but the system will warn you if your selection is incompatible with your GPU.
+
+## External LLM Configuration
+
+ACE-Step now includes a dedicated **External LLM** tab beside **Service Config** inside the
+Settings accordion.
+
+For a user-focused setup walkthrough, provider notes, and plain-language feature guide, see [External AI Setup and Usage Guide](EXTERNAL_AI_GUIDE.md).
+
+### External LLM Tab
+
+| Setting | Description |
+|---------|-------------|
+| **Provider** | Built-in provider profiles: Z.ai, OpenAI, Anthropic Claude, Ollama |
+| **Protocol** | API protocol (`openai_chat` or `anthropic_messages`) |
+| **Model** | Selected external model ID (editable). Use **Fetch Models** to auto-populate from endpoint |
+| **Base URL** | Provider endpoint URL (chat-completions/messages) |
+| **API Key** | Session key input (can be persisted encrypted) |
+| **Store Passphrase** | Passphrase used to encrypt/decrypt saved API key |
+| **Save passphrase to system keyring** | Stores passphrase for non-interactive runtime after restart |
+| **Save External LLM Settings** | Enables external mode and syncs model selection back to 5Hz LM dropdown |
+| **Check External Runtime** | Runtime doctor for key/passphrase/config readiness |
+
+### Persistence and Security
+
+- Non-secret provider settings are persisted to:
+  - `~/.local/share/acestep/config/external_lm_runtime.json`
+- Encrypted provider API keys are stored under:
+  - `~/.local/share/acestep/secrets/` (for example `zai_api_key.enc`)
+- API keys are encrypted at rest using OpenSSL; passphrase is required unless provided by keyring/env.
+
+### How It Integrates With 5Hz LM
+
+- The **5Hz LM Model Path** dropdown shows local 5Hz models plus the currently configured external entry (for example `external:zai:glm-5`).
+- Selecting an external entry activates external runtime mode.
+- Switching back to a local 5Hz model deactivates external mode, but keeps your external provider configuration available for re-selection.
+- When external mode is active, **Create Sample**, **Enhance Caption/Lyrics**, **Generate Lyrics**, and **Think/CoT metadata tasks** can run through the external provider without requiring local 5Hz LM initialization.
 
 ### Performance Options
 
