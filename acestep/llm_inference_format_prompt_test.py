@@ -54,6 +54,11 @@ class LlmFormatPromptScaffoldTests(unittest.TestCase):
 
         self.assertNotIn("# Preserve", prompt)
 
+    def test_local_rewrite_instruction_requires_sparse_caption_expansion(self) -> None:
+        """Local rewrite instruction should require short caption fragments to be expanded."""
+        self.assertIn("short fragment or keyword list", DEFAULT_LM_REWRITE_INSTRUCTION)
+        self.assertIn("complete ACE-Step narrative caption", DEFAULT_LM_REWRITE_INSTRUCTION)
+
     def test_local_instructions_require_singer_gender_and_delivery(self) -> None:
         """Local caption instructions should explicitly request singer gender and delivery mood."""
         self.assertIn("singer gender and delivery mood", DEFAULT_LM_INSPIRED_INSTRUCTION)

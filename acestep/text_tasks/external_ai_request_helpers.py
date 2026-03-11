@@ -16,6 +16,8 @@ def build_task_focus_guidance(*, task_focus: str) -> str:
     if normalized_focus == "format":
         return (
             "For format focus: preserve user intent, then improve clarity and musical specificity. "
+            "If the caption is sparse, fragmentary, or just a keyword list, expand it into a full "
+            "standard ACE-Step caption with global traits first and the linear song narrative after that. "
             "Do not change the core genre/mood unless required for coherence."
         )
     if normalized_focus == "lyrics":

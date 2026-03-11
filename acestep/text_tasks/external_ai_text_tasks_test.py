@@ -55,6 +55,8 @@ class ExternalAITextTasksTests(unittest.TestCase):
         messages = build_planning_messages("tighten this caption", task_focus="format")
         user_content = messages[1]["content"]
         self.assertIn("For format focus: preserve user intent", user_content)
+        self.assertIn("If the caption is sparse, fragmentary, or just a keyword list", user_content)
+        self.assertIn("global traits first", user_content)
 
     def test_parse_external_ai_response_supports_json_fences(self) -> None:
         """Parser should accept markdown-fenced JSON content from providers."""

@@ -59,7 +59,7 @@ def build_format_sample_intent(
 ) -> str:
     """Build format-sample intent text for an external LM request."""
     intent_parts = [
-        "Please format and enrich the following for ACE-Step generation.",
+        "Please format and enrich the following for ACE-Step generation. Expand sparse captions or keyword lists into a complete structured caption rather than leaving them terse.",
         f"Caption: {caption or ''}",
         f"Lyrics: {lyrics or ''}",
     ]
