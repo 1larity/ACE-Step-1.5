@@ -175,6 +175,80 @@ class TrainingPresetMixinTests(unittest.TestCase):
         self.assertEqual(host.last_init_params["quantization"], "int8_weight_only")
         self.assertIsNone(host._initialize_calls[0]["quantization"])
 
+    def test_switch_to_stable_quantized_preset_returns_already_stable(self):
+        """It short-circuits when int8 weight-only quantization is already active."""
+        host = _Host()
+        host.quantization = "int8_weight_only"
+        status, ok = host.switch_to_stable_quantized_preset()
+        self.assertTrue(ok)
+        self.assertIn("Already in stable quantized preset", status)
+        self.assertEqual(host._initialize_calls, [])
+
+    def test_switch_to_stable_quantized_preset_reinitializes_to_int8_weight_only(self):
+        """It reinitializes using cached params and forces int8 weight-only quantization."""
+        host = _Host()
+        host.quantization = "w8a8_dynamic"
+        host.last_init_params = {
+            "project_root": "K:/fake_root",
+            "config_path": "acestep-v15-turbo",
+            "device": "cpu",
+            "use_flash_attention": False,
+            "compile_model": False,
+            "offload_to_cpu": True,
+            "offload_dit_to_cpu": True,
+            "quantization": "w8a8_dynamic",
+            "prefer_source": "huggingface",
+            "use_mlx_dit": False,
+        }
+        host._initialize_result = ("reinit ok", True)
+
+        status, ok = host.switch_to_stable_quantized_preset()
+
+        self.assertTrue(ok)
+        self.assertIn("stable quantized preset", status)
+        self.assertEqual(len(host._initialize_calls), 1)
+        self.assertEqual(host._initialize_calls[0]["quantization"], "int8_weight_only")
+        self.assertEqual(host.last_init_params["quantization"], "w8a8_dynamic")
+
+    def test_switch_to_cpu_stability_preset_reinitializes_with_cpu_safe_settings(self):
+        """It reinitializes on CPU with quantization and compile disabled."""
+        host = _Host()
+        host.quantization = "int8_weight_only"
+        host.last_init_params = {
+            "project_root": "K:/fake_root",
+            "config_path": "acestep-v15-turbo",
+            "device": "cuda",
+            "use_flash_attention": True,
+            "compile_model": True,
+            "offload_to_cpu": True,
+            "offload_dit_to_cpu": True,
+            "quantization": "int8_weight_only",
+            "prefer_source": "huggingface",
+            "use_mlx_dit": False,
+        }
+        host._initialize_result = ("cpu reinit ok", True)
+
+        status, ok = host.switch_to_cpu_stability_preset()
+
+        self.assertTrue(ok)
+        self.assertIn("CPU stability preset", status)
+        self.assertEqual(len(host._initialize_calls), 1)
+        call = host._initialize_calls[0]
+        self.assertEqual(call["device"], "cpu")
+        self.assertFalse(call["compile_model"])
+        self.assertFalse(call["offload_to_cpu"])
+        self.assertFalse(call["offload_dit_to_cpu"])
+        self.assertIsNone(call["quantization"])
+        self.assertFalse(call["use_mlx_dit"])
+
+    def test_switch_to_cpu_stability_preset_fails_without_last_init_params(self):
+        """It returns a descriptive failure when no previous init params are available."""
+        host = _Host()
+        status, ok = host.switch_to_cpu_stability_preset()
+        self.assertFalse(ok)
+        self.assertIn("no previous init parameters", status)
+        self.assertEqual(host._initialize_calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()

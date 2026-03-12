@@ -134,4 +134,8 @@ def build_service_init_controls(service_pre_initialized: bool, params: dict[str,
         lines=3,
         value=params.get("init_status", "") if service_pre_initialized else "",
     )
-    return {"init_btn": init_btn, "init_status": init_status}
+
+    return {
+        "init_btn": init_btn,
+        "init_status": init_status,
+    }

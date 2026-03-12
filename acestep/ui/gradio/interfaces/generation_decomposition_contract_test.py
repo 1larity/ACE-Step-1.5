@@ -82,6 +82,7 @@ class GenerationDecompositionContractTests(unittest.TestCase):
                     call_names.append(name)
 
         self.assertIn("create_service_config_content", call_names)
+        self.assertIn("create_external_lm_config_content", call_names)
         self.assertIn("build_lora_controls", call_names)
         self.assertIn("build_dit_controls", call_names)
         self.assertIn("build_lm_controls", call_names)
@@ -150,6 +151,7 @@ class GenerationDecompositionContractTests(unittest.TestCase):
             ("generation_advanced_primary_controls.py", "build_lora_controls"),
             ("generation_advanced_output_controls.py", "build_output_controls"),
             ("generation_advanced_output_controls.py", "build_automation_controls"),
+            ("generation_external_lm_config.py", "create_external_lm_config_content"),
             ("generation_service_config_rows.py", "build_language_selector"),
             ("generation_service_config_rows.py", "build_gpu_info_and_tier"),
             ("generation_service_config_rows.py", "build_checkpoint_controls"),

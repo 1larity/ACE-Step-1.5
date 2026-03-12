@@ -3,6 +3,8 @@ Constants for ACE-Step
 Centralized constants used across the codebase
 """
 
+import os
+
 # ==============================================================================
 # Language Constants
 # ==============================================================================
@@ -117,8 +119,8 @@ MODE_TO_TASK_TYPE = {
 DEFAULT_DIT_INSTRUCTION = "Fill the audio semantic mask based on the given conditions:"
 DEFAULT_LM_INSTRUCTION = "Generate audio semantic tokens based on the given conditions:"
 DEFAULT_LM_UNDERSTAND_INSTRUCTION = "Understand the given musical conditions and describe the audio semantics accordingly:"
-DEFAULT_LM_INSPIRED_INSTRUCTION = "Expand the user's input into a more detailed and specific musical description:"
-DEFAULT_LM_REWRITE_INSTRUCTION = "Format the user's input into a more detailed and specific musical description:"
+DEFAULT_LM_INSPIRED_INSTRUCTION = "Expand the user's input into a more detailed and specific musical description, explicitly including singer gender and delivery mood when vocals are present:"
+DEFAULT_LM_REWRITE_INSTRUCTION = "Format the user's input into a more detailed and specific musical description. If the caption is only a short fragment or keyword list, expand it into a complete ACE-Step narrative caption with global musical traits first and a clear song arc after that, explicitly including singer gender and delivery mood when vocals are present:"
 
 # Instruction templates for each task type
 # Note: Some instructions use placeholders like {TRACK_NAME} or {TRACK_CLASSES}
@@ -209,7 +211,9 @@ DEBUG_INFERENCE = "OFF"
 DEBUG_TRAINING = "OFF"
 DEBUG_DATASET = "OFF"
 DEBUG_AUDIO = "OFF"
-DEBUG_LLM = "OFF"
+DEBUG_LLM = os.getenv("DEBUG_LLM", "OFF").strip().upper()
+DEBUG_EXTERNAL_AI = os.getenv("DEBUG_EXTERNAL_AI", "OFF").strip().upper()
 DEBUG_UI = "OFF"
 DEBUG_MODEL_LOADING = "OFF"
 DEBUG_GPU = "OFF"
+

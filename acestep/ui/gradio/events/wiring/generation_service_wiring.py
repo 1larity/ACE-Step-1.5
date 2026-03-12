@@ -8,20 +8,28 @@ from typing import Any
 
 import gradio as gr
 
+from acestep.text_tasks.external_lm_mode import (
+    activate_external_lm_mode,
+    deactivate_external_lm_mode,
+    is_external_lm_model,
+)
+
 from .. import generation_handlers as gen_h
 from ...i18n import get_i18n
-from .context import (
-    GenerationWiringContext,
-    build_auto_checkbox_inputs,
-    build_auto_checkbox_outputs,
+from .context import GenerationWiringContext, build_auto_checkbox_inputs, build_auto_checkbox_outputs
+from .generation_service_wiring_registration import (
+    register_dataset_handlers,
+    register_external_lm_handlers,
+    register_lora_handlers,
+    register_service_init_handlers,
 )
+from .generation_service_wiring_ui import register_auto_checkbox_handlers, register_visibility_handlers
 
 
 def register_generation_service_handlers(
     context: GenerationWiringContext,
 ) -> tuple[list[Any], list[Any]]:
     """Register generation service/init handlers and return auto-checkbox lists."""
-
     dataset_section = context.dataset_section
     generation_section = context.generation_section
     results_section = context.results_section
@@ -29,17 +37,12 @@ def register_generation_service_handlers(
     llm_handler = context.llm_handler
     dataset_handler = context.dataset_handler
 
-    # ========== Dataset Handlers ==========
-    dataset_section["import_dataset_btn"].click(
-        fn=dataset_handler.import_dataset,
-        inputs=[dataset_section["dataset_type"]],
-        outputs=[dataset_section["data_status"]],
-    )
-
-    # ========== Service Initialization ==========
-    generation_section["refresh_btn"].click(
-        fn=lambda: gen_h.refresh_checkpoints(dit_handler),
-        outputs=[generation_section["checkpoint_dropdown"]],
+    register_dataset_handlers(dataset_section=dataset_section, dataset_handler=dataset_handler)
+    register_service_init_handlers(
+        generation_section=generation_section,
+        gen_h=gen_h,
+        dit_handler=dit_handler,
+        llm_handler=llm_handler,
     )
 
     generation_section["language_dropdown"].change(
@@ -47,154 +50,50 @@ def register_generation_service_handlers(
         inputs=[generation_section["language_dropdown"]],
         outputs=[generation_section["language_dropdown"]],
     )
-
-    generation_section["config_path"].change(
-        fn=gen_h.update_model_type_settings,
-        inputs=[generation_section["config_path"], generation_section["generation_mode"]],
-        outputs=[
-            generation_section["inference_steps"],
-            generation_section["guidance_scale"],
-            generation_section["use_adg"],
-            generation_section["shift"],
-            generation_section["cfg_interval_start"],
-            generation_section["cfg_interval_end"],
-            generation_section["task_type"],
-            generation_section["generation_mode"],
-            generation_section["init_llm_checkbox"],
-        ],
+    generation_section["lm_model_path"].change(
+        fn=_sync_external_lm_mode_from_dropdown,
+        inputs=[generation_section["lm_model_path"]],
+        outputs=[generation_section["init_llm_checkbox"]],
     )
-
-    # ========== Tier Override ==========
-    generation_section["tier_dropdown"].change(
-        fn=lambda tier: gen_h.on_tier_change(tier, llm_handler),
-        inputs=[generation_section["tier_dropdown"]],
-        outputs=[
-            generation_section["offload_to_cpu_checkbox"],
-            generation_section["offload_dit_to_cpu_checkbox"],
-            generation_section["compile_model_checkbox"],
-            generation_section["quantization_checkbox"],
-            generation_section["backend_dropdown"],
-            generation_section["lm_model_path"],
-            generation_section["init_llm_checkbox"],
-            generation_section["batch_size_input"],
-            generation_section["audio_duration"],
-            generation_section["gpu_info_display"],
-        ],
+    register_external_lm_handlers(
+        generation_section=generation_section,
+        gen_h=gen_h,
+        llm_handler=llm_handler,
     )
-
-    generation_section["init_btn"].click(
-        fn=lambda *args: gen_h.init_service_wrapper(dit_handler, llm_handler, *args),
+    generation_section["external_lm_save_btn"].click(
+        fn=lambda *args: gen_h.save_external_lm_settings_from_ui(*args, llm_handler=llm_handler),
         inputs=[
-            generation_section["checkpoint_dropdown"],
-            generation_section["config_path"],
-            generation_section["device"],
-            generation_section["init_llm_checkbox"],
-            generation_section["lm_model_path"],
-            generation_section["backend_dropdown"],
-            generation_section["use_flash_attention_checkbox"],
-            generation_section["offload_to_cpu_checkbox"],
-            generation_section["offload_dit_to_cpu_checkbox"],
-            generation_section["compile_model_checkbox"],
-            generation_section["quantization_checkbox"],
-            generation_section["mlx_dit_checkbox"],
-            generation_section["generation_mode"],
-            generation_section["batch_size_input"],
+            generation_section["external_lm_provider_dropdown"],
+            generation_section["external_lm_protocol_dropdown"],
+            generation_section["external_lm_model_input"],
+            generation_section["external_lm_base_url_input"],
+            generation_section["external_lm_api_key_input"],
+            generation_section["external_lm_store_passphrase_input"],
+            generation_section["external_lm_save_passphrase_checkbox"],
         ],
         outputs=[
-            generation_section["init_status"],
-            generation_section["generate_btn"],
-            generation_section["service_config_accordion"],
-            generation_section["inference_steps"],
-            generation_section["guidance_scale"],
-            generation_section["use_adg"],
-            generation_section["shift"],
-            generation_section["cfg_interval_start"],
-            generation_section["cfg_interval_end"],
-            generation_section["task_type"],
-            generation_section["generation_mode"],
-            generation_section["init_llm_checkbox"],
-            generation_section["audio_duration"],
-            generation_section["batch_size_input"],
-            generation_section["think_checkbox"],
+            generation_section["external_lm_status"],
+            generation_section["external_lm_api_key_input"],
+            generation_section["external_lm_store_passphrase_input"],
+            generation_section["lm_model_path"],
         ],
     )
 
-    # ========== LoRA Handlers ==========
-    generation_section["load_lora_btn"].click(
-        fn=dit_handler.load_lora,
-        inputs=[generation_section["lora_path"]],
-        outputs=[generation_section["lora_status"]],
-    ).then(
-        fn=lambda: gr.update(value=True),
-        outputs=[generation_section["use_lora_checkbox"]],
-    )
-
-    generation_section["unload_lora_btn"].click(
-        fn=dit_handler.unload_lora,
-        outputs=[generation_section["lora_status"]],
-    ).then(
-        fn=lambda: gr.update(value=False),
-        outputs=[generation_section["use_lora_checkbox"]],
-    )
-
-    generation_section["use_lora_checkbox"].change(
-        fn=dit_handler.set_use_lora,
-        inputs=[generation_section["use_lora_checkbox"]],
-        outputs=[generation_section["lora_status"]],
-    )
-
-    generation_section["lora_scale_slider"].change(
-        fn=dit_handler.set_lora_scale,
-        inputs=[generation_section["lora_scale_slider"]],
-        outputs=[generation_section["lora_status"]],
-    )
-
-    # ========== Auto Checkbox Handlers ==========
-    auto_field_map = {
-        "bpm_auto": ("bpm", "bpm"),
-        "key_auto": ("key_scale", "key_scale"),
-        "timesig_auto": ("time_signature", "time_signature"),
-        "vocal_lang_auto": ("vocal_language", "vocal_language"),
-        "duration_auto": ("audio_duration", "audio_duration"),
-    }
-    for auto_key, (field_name, comp_key) in auto_field_map.items():
-        generation_section[auto_key].change(
-            fn=lambda checked, fn=field_name: gen_h.on_auto_checkbox_change(checked, fn),
-            inputs=[generation_section[auto_key]],
-            outputs=[generation_section[comp_key]],
-        )
-
+    register_lora_handlers(generation_section=generation_section, dit_handler=dit_handler)
     auto_checkbox_outputs = build_auto_checkbox_outputs(context)
     auto_checkbox_inputs = build_auto_checkbox_inputs(context)
-
-    generation_section["reset_all_auto_btn"].click(
-        fn=gen_h.reset_all_auto,
-        outputs=auto_checkbox_outputs,
+    register_auto_checkbox_handlers(
+        generation_section=generation_section,
+        gen_h=gen_h,
+        auto_checkbox_outputs=auto_checkbox_outputs,
     )
-
-    # ========== UI Visibility Updates ==========
-    generation_section["init_llm_checkbox"].change(
-        fn=gen_h.update_negative_prompt_visibility,
-        inputs=[generation_section["init_llm_checkbox"]],
-        outputs=[generation_section["lm_negative_prompt"]],
+    register_visibility_handlers(
+        generation_section=generation_section,
+        results_section=results_section,
+        gen_h=gen_h,
+        llm_handler=llm_handler,
+        sync_lm_selection_from_init_checkbox=_sync_lm_selection_from_init_checkbox,
     )
-
-    generation_section["batch_size_input"].change(
-        fn=gen_h.update_audio_components_visibility,
-        inputs=[generation_section["batch_size_input"]],
-        outputs=[
-            results_section["audio_col_1"],
-            results_section["audio_col_2"],
-            results_section["audio_col_3"],
-            results_section["audio_col_4"],
-            results_section["audio_row_5_8"],
-            results_section["audio_col_5"],
-            results_section["audio_col_6"],
-            results_section["audio_col_7"],
-            results_section["audio_col_8"],
-        ],
-    )
-
     return auto_checkbox_inputs, auto_checkbox_outputs
 
 
@@ -207,6 +106,33 @@ def _apply_runtime_language(language: str) -> dict[str, Any]:
     Returns:
         A ``gr.update`` payload preserving the selected dropdown value.
     """
-
     get_i18n(language)
     return gr.update(value=language)
+
+
+def _sync_external_lm_mode_from_dropdown(lm_model_path: str) -> dict[str, Any]:
+    """Keep external LM mode in sync with the selected LM dropdown value."""
+    if is_external_lm_model(lm_model_path):
+        activate_external_lm_mode(lm_model_path)
+        return gr.update(value=False)
+    deactivate_external_lm_mode()
+    return gr.update(value=True)
+
+
+def _sync_lm_selection_from_init_checkbox(
+    init_llm: bool,
+    lm_model_path: str,
+    llm_handler: Any | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Keep 5Hz-init checkbox and LM model selection mutually consistent."""
+    if not init_llm:
+        return gr.update(value=False), gr.update()
+    if not is_external_lm_model(lm_model_path):
+        return gr.update(value=True), gr.update()
+
+    local_models = llm_handler.get_available_5hz_lm_models() if llm_handler else []
+    local_model_choices = [model for model in (local_models or []) if model]
+    if not local_model_choices:
+        return gr.update(value=False), gr.update()
+    deactivate_external_lm_mode()
+    return gr.update(value=True), gr.update(value=local_model_choices[0])

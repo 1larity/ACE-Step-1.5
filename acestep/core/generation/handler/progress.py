@@ -4,9 +4,10 @@ import json
 import os
 import threading
 import time
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from loguru import logger
+import torch
 
 # Conservative per-step estimate used when no historical timing data exists
 # (i.e., first-ever generation on this machine).  2.5s/step is deliberately
@@ -14,9 +15,75 @@ from loguru import logger
 # early and pausing is far less alarming than freezing at 52% with zero
 # movement.  The estimate self-corrects after the first successful generation.
 _FALLBACK_PER_STEP_SEC = 2.5
+_DEFAULT_PHASE_RANGES = {
+    "service_start": 0.30,
+    "encoding_end": 0.45,
+    "diffusion_end": 0.79,
+}
+_DEFAULT_MIN_PHASE_PROFILE_SAMPLES = 8
 
 
 class ProgressMixin:
+    """Shared progress helpers for generation handlers that emit phase-aware updates."""
+    def _set_runtime_progress_callback(
+        self,
+        callback: Optional[Callable[..., Any]],
+    ) -> None:
+        """Set per-generation runtime progress callback for the current thread."""
+        callbacks = getattr(self, "_runtime_progress_callbacks", None)
+        if not isinstance(callbacks, dict):
+            callbacks = {}
+            self._runtime_progress_callbacks = callbacks
+
+        callbacks_lock = getattr(self, "_runtime_progress_callbacks_lock", None)
+        if callbacks_lock is None:
+            callbacks_lock = threading.Lock()
+            self._runtime_progress_callbacks_lock = callbacks_lock
+
+        thread_id = threading.get_ident()
+        with callbacks_lock:
+            if callable(callback):
+                callbacks[thread_id] = callback
+            else:
+                callbacks.pop(thread_id, None)
+
+        # Backward-compatible fallback for tests/older call sites that access the
+        # single-callback attribute directly.
+        self._runtime_progress_callback = callback
+
+    def _get_runtime_progress_callback(self) -> Optional[Callable[..., Any]]:
+        """Return the active runtime progress callback for the current thread."""
+        callbacks = getattr(self, "_runtime_progress_callbacks", None)
+        callbacks_lock = getattr(self, "_runtime_progress_callbacks_lock", None)
+        thread_id = threading.get_ident()
+        if isinstance(callbacks, dict) and callbacks_lock is not None:
+            with callbacks_lock:
+                callback = callbacks.get(thread_id)
+                if callable(callback):
+                    return callback
+        return getattr(self, "_runtime_progress_callback", None)
+
+    def _emit_runtime_progress(
+        self,
+        stage: str,
+        current: int,
+        total: int,
+        desc: str,
+    ) -> None:
+        """Emit a runtime progress event to the active callback when available."""
+        resolver = getattr(self, "_get_runtime_progress_callback", None)
+        if callable(resolver):
+            callback = resolver()
+        else:
+            callback = getattr(self, "_runtime_progress_callback", None)
+        if not callable(callback):
+            return
+        try:
+            callback(stage=stage, current=current, total=total, desc=desc)
+        except Exception:
+            # Progress reporting is best-effort; generation should continue.
+            pass
+
     def _get_project_root(self) -> str:
         """Get project root directory path.
 
@@ -38,11 +105,18 @@ class ProgressMixin:
             if os.path.exists(self._progress_estimates_path):
                 with open(self._progress_estimates_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    if isinstance(data, dict) and isinstance(data.get("records"), list):
-                        self._progress_estimates = data
+                    if isinstance(data, dict):
+                        records = data.get("records")
+                        phase_profiles = data.get("phase_profiles")
+                        self._progress_estimates = {
+                            "records": records if isinstance(records, list) else [],
+                            "phase_profiles": phase_profiles if isinstance(phase_profiles, dict) else {},
+                        }
+                        if "updated_at" in data:
+                            self._progress_estimates["updated_at"] = data["updated_at"]
         except Exception:
             # Ignore corrupted cache; it will be overwritten on next save.
-            self._progress_estimates = {"records": []}
+            self._progress_estimates = {"records": [], "phase_profiles": {}}
 
     def _save_progress_estimates(self) -> None:
         """Persist diffusion progress estimates."""
@@ -52,6 +126,211 @@ class ProgressMixin:
                 json.dump(self._progress_estimates, f)
         except Exception:
             pass
+
+    @staticmethod
+    def _clamp(value: float, minimum: float, maximum: float) -> float:
+        """Clamp ``value`` into inclusive ``[minimum, maximum]`` bounds."""
+        return max(minimum, min(maximum, value))
+
+    def _get_progress_profile_machine_key(self) -> str:
+        """Build a stable machine/runtime key for persisted progress phase profiles."""
+        device = str(getattr(self, "device", "unknown"))
+        quantization = str(getattr(self, "quantization", "none"))
+        offload = "1" if bool(getattr(self, "offload_to_cpu", False)) else "0"
+        offload_dit = "1" if bool(getattr(self, "offload_dit_to_cpu", False)) else "0"
+        dtype = str(getattr(self, "dtype", "unknown"))
+        capability = "na"
+        gpu_name = "na"
+        if device == "cuda" and torch.cuda.is_available():
+            try:
+                major, minor = torch.cuda.get_device_capability(0)
+                capability = f"{major}.{minor}"
+            except Exception:
+                capability = "unknown"
+            try:
+                gpu_name = torch.cuda.get_device_name(0)
+            except Exception:
+                gpu_name = "unknown"
+        return "|".join(
+            [
+                f"device:{device}",
+                f"gpu:{gpu_name}",
+                f"cc:{capability}",
+                f"dtype:{dtype}",
+                f"quant:{quantization}",
+                f"offload:{offload}",
+                f"offload_dit:{offload_dit}",
+            ]
+        )
+
+    @staticmethod
+    def _is_progress_phase_auto_profile_enabled() -> bool:
+        """Return whether automatic phase profiling is enabled."""
+        return os.environ.get("ACESTEP_DISABLE_PROGRESS_AUTO_PROFILE", "").lower() not in (
+            "1",
+            "true",
+            "yes",
+        )
+
+    @staticmethod
+    def _is_progress_phase_force_train_enabled() -> bool:
+        """Return whether updates should continue even after profile freeze."""
+        return os.environ.get("ACESTEP_PROGRESS_PROFILE_FORCE_TRAIN", "").lower() in ("1", "true", "yes")
+
+    @staticmethod
+    def _is_progress_phase_autofreeze_enabled() -> bool:
+        """Return whether profile auto-freeze should occur after minimum samples."""
+        return os.environ.get("ACESTEP_PROGRESS_PROFILE_AUTOFREEZE", "1").lower() in ("1", "true", "yes")
+
+    @staticmethod
+    def _get_progress_phase_profile_min_samples() -> int:
+        """Return minimum sample count before phase profile auto-freeze."""
+        raw = os.environ.get("ACESTEP_PROGRESS_PROFILE_MIN_SAMPLES", "").strip()
+        if not raw:
+            return _DEFAULT_MIN_PHASE_PROFILE_SAMPLES
+        try:
+            value = int(raw)
+        except ValueError:
+            return _DEFAULT_MIN_PHASE_PROFILE_SAMPLES
+        return max(1, value)
+
+    def _normalize_progress_phase_ranges(self, ranges: Optional[dict[str, float]]) -> dict[str, float]:
+        """Normalize phase ranges so service->encoding->diffusion boundaries are monotonic."""
+        resolved = dict(_DEFAULT_PHASE_RANGES)
+        if isinstance(ranges, dict):
+            for key in ("service_start", "encoding_end", "diffusion_end"):
+                value = ranges.get(key)
+                if isinstance(value, (int, float)):
+                    resolved[key] = float(value)
+
+        service_start = self._clamp(resolved["service_start"], 0.05, 0.55)
+        encoding_end = self._clamp(resolved["encoding_end"], service_start + 0.04, 0.88)
+        diffusion_end = self._clamp(resolved["diffusion_end"], encoding_end + 0.08, 0.95)
+        return {
+            "service_start": service_start,
+            "encoding_end": encoding_end,
+            "diffusion_end": diffusion_end,
+        }
+
+    def _phase_ranges_from_profile(
+        self,
+        setup_ratio: float,
+        decode_ratio: float,
+        diffusion_ratio_of_service: float,
+    ) -> dict[str, float]:
+        """Convert observed stage ratios into progress-bar phase boundaries."""
+        service_start = self._clamp(setup_ratio, 0.08, 0.35)
+        decode_span = self._clamp(decode_ratio, 0.18, 0.45)
+        diffusion_end = 1.0 - decode_span
+        if diffusion_end < service_start + 0.20:
+            diffusion_end = service_start + 0.20
+        diffusion_end = self._clamp(diffusion_end, service_start + 0.20, 0.92)
+        service_span = diffusion_end - service_start
+        encoding_ratio = self._clamp(1.0 - diffusion_ratio_of_service, 0.12, 0.55)
+        encoding_end = service_start + (service_span * encoding_ratio)
+        return self._normalize_progress_phase_ranges(
+            {
+                "service_start": service_start,
+                "encoding_end": encoding_end,
+                "diffusion_end": diffusion_end,
+            }
+        )
+
+    def _get_progress_phase_ranges(self) -> dict[str, float]:
+        """Return persisted machine-specific phase ranges or safe defaults."""
+        machine_key = self._get_progress_profile_machine_key()
+        with self._progress_estimates_lock:
+            phase_profiles = self._progress_estimates.get("phase_profiles", {})
+            profile = phase_profiles.get(machine_key, {}) if isinstance(phase_profiles, dict) else {}
+        ranges = profile.get("phase_ranges") if isinstance(profile, dict) else None
+        return self._normalize_progress_phase_ranges(ranges)
+
+    def _update_progress_phase_profile(
+        self,
+        *,
+        stage_timings: dict[str, float],
+        time_costs: Optional[dict[str, Any]],
+    ) -> None:
+        """Update persistent machine-specific phase profile from one generation run."""
+        if not self._is_progress_phase_auto_profile_enabled():
+            return
+
+        def _to_float(value: Any) -> float:
+            try:
+                return float(value or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        setup = _to_float(stage_timings.get("setup_before_service_sec", 0.0))
+        service = _to_float(stage_timings.get("service_generate_sec", 0.0))
+        decode = _to_float(stage_timings.get("decode_total_sec", 0.0))
+        diffusion = 0.0
+        if isinstance(time_costs, dict):
+            diffusion = _to_float(time_costs.get("diffusion_time_cost", 0.0))
+            if decode <= 0:
+                decode = _to_float(time_costs.get("vae_decode_time_cost", 0.0))
+            if service <= 0:
+                total_cost = _to_float(time_costs.get("total_time_cost", 0.0))
+                service = max(0.0, total_cost - decode)
+        observed_total = setup + service + decode
+        if observed_total <= 0:
+            return
+
+        setup_ratio = self._clamp(setup / observed_total, 0.0, 0.70)
+        decode_ratio = self._clamp(decode / observed_total, 0.0, 0.80)
+        diffusion_ratio_of_service = self._clamp(
+            (diffusion / service) if service > 0 else 0.75,
+            0.0,
+            1.0,
+        )
+
+        machine_key = self._get_progress_profile_machine_key()
+        min_samples = self._get_progress_phase_profile_min_samples()
+        allow_force_train = self._is_progress_phase_force_train_enabled()
+        with self._progress_estimates_lock:
+            phase_profiles = self._progress_estimates.setdefault("phase_profiles", {})
+            profile = phase_profiles.get(machine_key, {})
+            sample_count = int(profile.get("sample_count", 0) or 0)
+            frozen = bool(profile.get("frozen", False))
+            if frozen and not allow_force_train:
+                return
+
+            ratios = profile.get("ratios") if isinstance(profile.get("ratios"), dict) else {}
+            old_setup = float(ratios.get("setup_ratio", setup_ratio))
+            old_decode = float(ratios.get("decode_ratio", decode_ratio))
+            old_diff_service = float(
+                ratios.get("diffusion_ratio_of_service", diffusion_ratio_of_service)
+            )
+
+            new_count = sample_count + 1
+            avg_setup = ((old_setup * sample_count) + setup_ratio) / new_count
+            avg_decode = ((old_decode * sample_count) + decode_ratio) / new_count
+            avg_diff_service = ((old_diff_service * sample_count) + diffusion_ratio_of_service) / new_count
+            phase_ranges = self._phase_ranges_from_profile(
+                setup_ratio=avg_setup,
+                decode_ratio=avg_decode,
+                diffusion_ratio_of_service=avg_diff_service,
+            )
+
+            frozen = (
+                self._is_progress_phase_autofreeze_enabled()
+                and (new_count >= min_samples)
+                and not allow_force_train
+            )
+            phase_profiles[machine_key] = {
+                "sample_count": new_count,
+                "frozen": frozen,
+                "ratios": {
+                    "setup_ratio": avg_setup,
+                    "decode_ratio": avg_decode,
+                    "diffusion_ratio_of_service": avg_diff_service,
+                },
+                "phase_ranges": phase_ranges,
+                "updated_at": time.time(),
+            }
+            self._progress_estimates["phase_profiles"] = phase_profiles
+            self._progress_estimates["updated_at"] = time.time()
+            self._save_progress_estimates()
 
     def _duration_bucket(self, duration_sec: Optional[float]) -> str:
         if duration_sec is None or duration_sec <= 0:

@@ -4,6 +4,7 @@ import gradio as gr
 from loguru import logger
 
 from acestep.constants import MODE_TO_TASK_TYPE
+from acestep.text_tasks.external_lm_mode import is_external_lm_active
 from acestep.ui.gradio.i18n import t
 from .mode_ui_helpers import (
     _compute_automation_updates,
@@ -54,7 +55,7 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
     cover_noise_update = gr.update(visible=is_cover)
 
     # Think checkbox
-    lm_initialized = llm_handler.llm_initialized if llm_handler else False
+    lm_initialized = (llm_handler.llm_initialized if llm_handler else False) or is_external_lm_active()
     if is_extract or is_lego or is_cover or is_repaint:
         think_update = gr.update(interactive=False, value=False, visible=not (is_extract or is_lego))
     elif not lm_initialized:

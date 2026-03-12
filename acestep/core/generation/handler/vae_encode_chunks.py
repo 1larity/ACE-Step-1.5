@@ -12,6 +12,7 @@ class VaeEncodeChunksMixin:
         _ = batch_size, chunk_size
         encoded_latent_list = []
         downsample_factor = None
+        emit_progress = getattr(self, "_emit_runtime_progress", None)
 
         for i in tqdm(range(num_steps), desc="Encoding audio chunks", disable=self.disable_tqdm):
             core_start = i * stride
@@ -36,12 +37,15 @@ class VaeEncodeChunksMixin:
             latent_core = latent_chunk[:, :, trim_start:end_idx]
             encoded_latent_list.append(latent_core)
             del audio_chunk
+            if callable(emit_progress):
+                emit_progress("encoding", i + 1, num_steps, "Encoding audio chunks")
 
         return torch.cat(encoded_latent_list, dim=-1)
 
     def _tiled_encode_offload_cpu(self, audio, batch_size, samples, stride, overlap, num_steps, chunk_size):
         """Tiled encode that offloads latent chunks to CPU immediately."""
         _ = chunk_size
+        emit_progress = getattr(self, "_emit_runtime_progress", None)
         first_core_end = min(stride, samples)
         first_win_end = min(samples, first_core_end + overlap)
 
@@ -70,6 +74,8 @@ class VaeEncodeChunksMixin:
         latent_write_pos = first_latent_core.shape[-1]
         final_latents[:, :, :latent_write_pos] = first_latent_core.cpu()
         del first_audio_chunk, first_latent_chunk, first_latent_core
+        if callable(emit_progress):
+            emit_progress("encoding", 1, num_steps, "Encoding audio chunks")
 
         for i in tqdm(range(1, num_steps), desc="Encoding audio chunks", disable=self.disable_tqdm):
             core_start = i * stride
@@ -94,5 +100,7 @@ class VaeEncodeChunksMixin:
             final_latents[:, :, latent_write_pos : latent_write_pos + core_len] = latent_core.cpu()
             latent_write_pos += core_len
             del audio_chunk, latent_chunk, latent_core
+            if callable(emit_progress):
+                emit_progress("encoding", i + 1, num_steps, "Encoding audio chunks")
 
         return final_latents[:, :, :latent_write_pos]

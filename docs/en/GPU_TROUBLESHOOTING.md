@@ -158,6 +158,44 @@ For AMD GPUs, ROCm support in WSL2 is limited. Consider:
 - Running on native Linux
 - Using Windows with `start_gradio_ui_rocm.bat` / `start_api_server_rocm.bat`
 
+### Issue 5: `CUDA error: no kernel image is available for execution on the device`
+
+**Symptoms:**
+- Usually appears on older NVIDIA GPUs (for example Pascal / some Quadro cards)
+- Typical error includes:
+  - `cudaErrorNoKernelImageForDevice`
+  - `no kernel image is available for execution on the device`
+
+**Cause:**
+- Installed torch CUDA wheels do not include your GPU arch kernels (commonly `sm_61`).
+
+**Recommended Fix (Linux launchers):**
+
+Use launcher scripts so ACE-Step can auto-apply the legacy compatibility patch:
+
+```bash
+./start_gradio_ui.sh
+# or
+./start_api_server.sh
+```
+
+The launcher checks compatibility and only applies the legacy torch pin when needed.
+
+**Manual Fix (advanced):**
+
+```bash
+uv pip install --python .venv/bin/python --force-reinstall \
+  --index-url https://download.pytorch.org/whl/cu121 \
+  torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121
+uv pip install --python .venv/bin/python --force-reinstall torchao==0.11.0
+```
+
+Then run:
+
+```bash
+uv run --no-sync acestep
+```
+
 ## GPU-Specific Configuration
 
 ### RX 9070 XT (RDNA3)
@@ -231,6 +269,7 @@ If none of the above solutions work:
 |----------|---------|---------|
 | `MAX_CUDA_VRAM` | Override detected VRAM for tier simulation (also enforces hard VRAM cap via `set_per_process_memory_fraction`) | `8` (simulate 8GB GPU) |
 | `ACESTEP_VAE_ON_CPU` | Force VAE decode on CPU to save VRAM | `1` (enable) |
+| `ACESTEP_SKIP_LEGACY_TORCH_FIX` | Disable launcher auto-patching for legacy NVIDIA torch compatibility | `true` |
 
 > **Note on `MAX_CUDA_VRAM`**: When set, this variable not only changes the tier detection logic but also calls `torch.cuda.set_per_process_memory_fraction()` to enforce a hard VRAM limit. This means OOM errors during simulation are realistic and reflect actual behavior on GPUs with that amount of VRAM. See [GPU_COMPATIBILITY.md](GPU_COMPATIBILITY.md) for the full tier table.
 

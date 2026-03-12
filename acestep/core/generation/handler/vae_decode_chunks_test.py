@@ -28,9 +28,9 @@ class VaeDecodeChunksMixinTests(unittest.TestCase):
         """Invalid overlap should be reduced until stride becomes positive."""
         host = _ChunksHost()
 
-        def _capture_gpu(latents, stride, overlap, num_steps):
+        def _capture_gpu(latents, stride, overlap, num_steps, decode_progress_callback=None):
             """Capture overlap argument passed to GPU decode path."""
-            _ = latents, stride, num_steps
+            _ = latents, stride, num_steps, decode_progress_callback
             host.recorded["overlap"] = overlap
             return torch.ones(1, 2, 4)
 
@@ -73,6 +73,27 @@ class VaeDecodeChunksMixinTests(unittest.TestCase):
         out = host._tiled_decode_inner(torch.zeros(1, 4, 20), chunk_size=8, overlap=2, offload_wav_to_cpu=False)
         self.assertTrue(torch.equal(out, torch.full((1, 2, 7), 9.0)))
         self.assertEqual(host.decode_on_cpu_calls, 1)
+
+    def test_tiled_decode_emits_chunk_progress_callbacks(self):
+        """Chunk decode path should emit callback updates as chunks complete."""
+        host = _ChunksHost()
+        latents = torch.zeros(1, 4, 20)
+        progress_calls = []
+
+        def _on_progress(current, total):
+            """Capture chunk progress updates."""
+            progress_calls.append((current, total))
+
+        out = host._tiled_decode_inner(
+            latents,
+            chunk_size=8,
+            overlap=2,
+            offload_wav_to_cpu=False,
+            decode_progress_callback=_on_progress,
+        )
+        self.assertEqual(tuple(out.shape), (1, 2, 40))
+        self.assertTrue(progress_calls)
+        self.assertEqual(progress_calls[-1], (5, 5))
 
 
 if __name__ == "__main__":

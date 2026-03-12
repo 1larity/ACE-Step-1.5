@@ -166,6 +166,53 @@ fi
 echo "[Environment] Using uv package manager..."
 echo
 
+RUN_UV_NO_SYNC=0
+
+# Ensure PyTorch build supports legacy NVIDIA GPUs (e.g., Pascal/Quadro P1000).
+# Newer CUDA wheels can omit sm_61, which causes runtime model-init failures.
+_ensure_legacy_nvidia_torch_compat() {
+    [[ "${ACESTEP_SKIP_LEGACY_TORCH_FIX:-}" == "true" ]] && return 0
+    [[ ! -x "$SCRIPT_DIR/.venv/bin/python" ]] && return 0
+
+    local compat_status
+    local install_status
+    local torchao_status
+    if (cd "$SCRIPT_DIR" && .venv/bin/python -c \
+        "import os, sys; sys.path.insert(0, os.getcwd()); from acestep.launcher_compat import legacy_torch_fix_probe_exit_code; raise SystemExit(legacy_torch_fix_probe_exit_code())"); then
+        return 0
+    else
+        compat_status=$?
+    fi
+
+    if [[ "$compat_status" -ne 42 ]]; then
+        echo "[Compatibility] Error: legacy torch compatibility probe failed with exit code $compat_status." >&2
+        return "$compat_status"
+    fi
+    RUN_UV_NO_SYNC=1
+
+    echo "[Compatibility] Applying legacy NVIDIA torch build (CUDA 12.1, supports sm_61)..."
+    if (cd "$SCRIPT_DIR" && uv pip install --python .venv/bin/python --force-reinstall \
+        --index-url https://download.pytorch.org/whl/cu121 \
+        torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121); then
+        echo "[Compatibility] Legacy torch install complete."
+        # Keep a legacy-compatible torchao so INT8 quantization remains available
+        # on low-VRAM Pascal/Quadro GPUs.
+        if (cd "$SCRIPT_DIR" && uv pip install --python .venv/bin/python --force-reinstall torchao==0.11.0 >/dev/null 2>&1); then
+            echo "[Compatibility] Installed torchao==0.11.0 (legacy-compatible)."
+        else
+            torchao_status=$?
+            echo "[Compatibility] Error: failed to install torchao==0.11.0 (exit code $torchao_status)." >&2
+            return "$torchao_status"
+        fi
+    else
+        install_status=$?
+        echo "[Compatibility] Error: failed to install legacy torch automatically (exit code $install_status)." >&2
+        echo "[Compatibility] Run manually:"
+        echo "  uv pip install --python .venv/bin/python --force-reinstall --index-url https://download.pytorch.org/whl/cu121 torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121"
+        return "$install_status"
+    fi
+}
+
 # Check if virtual environment exists
 if [[ ! -d "$SCRIPT_DIR/.venv" ]]; then
     echo "[Setup] Virtual environment not found. Setting up environment..."
@@ -200,6 +247,13 @@ if [[ ! -d "$SCRIPT_DIR/.venv" ]]; then
     echo
 fi
 
+_ensure_legacy_nvidia_torch_compat || exit $?
+
+UV_RUN_FLAGS=()
+if [[ "$RUN_UV_NO_SYNC" == "1" ]]; then
+    UV_RUN_FLAGS+=(--no-sync)
+fi
+
 echo "Starting ACE-Step API Server..."
 echo
 
@@ -209,11 +263,11 @@ ACESTEP_ARGS="acestep-api --host $HOST --port $PORT"
 [[ -n "$DOWNLOAD_SOURCE" ]] && ACESTEP_ARGS="$ACESTEP_ARGS $DOWNLOAD_SOURCE"
 [[ -n "$LM_MODEL_PATH" ]] && ACESTEP_ARGS="$ACESTEP_ARGS $LM_MODEL_PATH"
 
-cd "$SCRIPT_DIR" && uv run $ACESTEP_ARGS || {
+cd "$SCRIPT_DIR" && uv run "${UV_RUN_FLAGS[@]}" $ACESTEP_ARGS || {
     echo
     echo "[Retry] Online dependency resolution failed, retrying in offline mode..."
     echo
-    uv run --offline $ACESTEP_ARGS || {
+    uv run --offline "${UV_RUN_FLAGS[@]}" $ACESTEP_ARGS || {
         echo
         echo "========================================"
         echo "[Error] Failed to start ACE-Step API Server"

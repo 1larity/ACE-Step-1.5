@@ -79,6 +79,22 @@ class InitServiceSetupMixin:
                 logger.warning("[initialize_service] Quantization (torchao) is not supported on MPS; disabling.")
                 normalized_quantization = None
 
+        if device == "cuda" and normalized_compile and normalized_quantization is not None:
+            try:
+                if torch.cuda.is_available():
+                    major, _ = torch.cuda.get_device_capability(0)
+                    if major < 7:
+                        logger.info(
+                            "[initialize_service] Pre-Volta CUDA + quantization detected: "
+                            "disabling torch.compile for stability."
+                        )
+                        normalized_compile = False
+            except Exception:
+                logger.warning(
+                    "[initialize_service] Failed to probe CUDA capability for compile/quantization "
+                    "stability guard; keeping compile setting unchanged."
+                )
+
         return normalized_compile, normalized_quantization, mlx_compile_requested
 
     @staticmethod
@@ -103,14 +119,12 @@ class InitServiceSetupMixin:
         """Validate quantization prerequisites before model loading."""
         if quantization is None:
             return
-        if not compile_model:
-            raise ValueError("Quantization requires compile_model to be True")
         try:
             import torchao  # noqa: F401
-        except ImportError as exc:
+        except Exception as exc:
             raise ImportError(
-                "torchao is required for quantization but is not installed. "
-                "Please install torchao to use quantization features."
+                "torchao is required for quantization but is unavailable or incompatible "
+                "with this PyTorch build. Please install a compatible torchao version."
             ) from exc
 
     def _initialize_mlx_backends(

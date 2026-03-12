@@ -133,9 +133,12 @@ class AceStepHandler(
         self.current_offload_cost = 0.0
         self.disable_tqdm = os.environ.get("ACESTEP_DISABLE_TQDM", "").lower() in ("1", "true", "yes") or not getattr(sys.stderr, 'isatty', lambda: False)()
         self.debug_stats = os.environ.get("ACESTEP_DEBUG_STATS", "").lower() in ("1", "true", "yes")
+        self._runtime_progress_callback = None
+        self._runtime_progress_callbacks = {}
+        self._runtime_progress_callbacks_lock = threading.Lock()
         self._last_diffusion_per_step_sec: Optional[float] = None
         self._progress_estimates_lock = threading.Lock()
-        self._progress_estimates = {"records": []}
+        self._progress_estimates = {"records": [], "phase_profiles": {}}
         self._progress_estimates_path = os.path.join(
             self._get_project_root(),
             ".cache",
@@ -166,4 +169,3 @@ class AceStepHandler(
         # MLX VAE acceleration (macOS Apple Silicon only)
         self.mlx_vae = None
         self.use_mlx_vae = False
-

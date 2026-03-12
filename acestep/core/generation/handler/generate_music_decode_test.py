@@ -79,6 +79,49 @@ class _FakeVae:
         return self
 
 
+class _CudaSafeLatents:
+    """Tensor-like wrapper that no-ops device moves to keep tests CPU-only."""
+
+    def __init__(self, tensor: torch.Tensor):
+        """Store wrapped tensor used for shape/dtype preserving transforms."""
+        self._tensor = tensor
+
+    @property
+    def shape(self):
+        """Expose wrapped tensor shape."""
+        return self._tensor.shape
+
+    @property
+    def device(self):
+        """Expose wrapped tensor device."""
+        return self._tensor.device
+
+    def detach(self):
+        """Return detached wrapped tensor."""
+        return _CudaSafeLatents(self._tensor.detach())
+
+    def cpu(self):
+        """Return CPU wrapped tensor."""
+        return _CudaSafeLatents(self._tensor.cpu())
+
+    def transpose(self, *args, **kwargs):
+        """Return transposed wrapped tensor."""
+        return _CudaSafeLatents(self._tensor.transpose(*args, **kwargs))
+
+    def contiguous(self):
+        """Return contiguous wrapped tensor."""
+        return _CudaSafeLatents(self._tensor.contiguous())
+
+    def to(self, *args, **kwargs):
+        """Support dtype conversion while no-oping device migration."""
+        if args and isinstance(args[0], torch.dtype):
+            return _CudaSafeLatents(self._tensor.to(*args, **kwargs))
+        dtype = kwargs.get("dtype")
+        if isinstance(dtype, torch.dtype):
+            return _CudaSafeLatents(self._tensor.to(dtype=dtype))
+        return self
+
+
 class _Host(GenerateMusicDecodeMixin):
     """Minimal decode-mixin host exposing deterministic state for assertions."""
 
@@ -120,14 +163,146 @@ class _Host(GenerateMusicDecodeMixin):
         _ = latents
         return torch.ones(1, 2, 8)
 
-    def tiled_decode(self, latents):
+    def tiled_decode(self, latents, progress_callback=None):
         """Return deterministic decoded waveform for tiled decode branch."""
         _ = latents
+        if callable(progress_callback):
+            progress_callback(1, 2)
+            progress_callback(2, 2)
         return torch.ones(1, 2, 8)
 
 
 class GenerateMusicDecodeMixinTests(unittest.TestCase):
     """Verify decode-state preparation and latent decode helper behavior."""
+
+    def test_should_try_cuda_vae_decode_from_cpu_only_when_enabled_and_enough_vram(self):
+        """CPU runtime should only attempt CUDA VAE decode when all guards pass."""
+        host = _Host()
+        host.use_mlx_vae = False
+        host.mlx_vae = None
+        with patch.dict(
+            GENERATE_MUSIC_DECODE_MODULE.os.environ,
+            {"ACESTEP_CPU_STABILITY_USE_CUDA_VAE": "1", "ACESTEP_CPU_STABILITY_VAE_MIN_FREE_GB": "1.0"},
+            clear=False,
+        ), patch.object(
+            GENERATE_MUSIC_DECODE_MODULE.torch.cuda,
+            "is_available",
+            return_value=True,
+        ), patch.object(
+            GENERATE_MUSIC_DECODE_MODULE,
+            "get_effective_free_vram_gb",
+            return_value=2.0,
+        ):
+            self.assertTrue(host._should_try_cuda_vae_decode_from_cpu(using_mlx_vae=False))
+
+        with patch.dict(
+            GENERATE_MUSIC_DECODE_MODULE.os.environ,
+            {"ACESTEP_CPU_STABILITY_USE_CUDA_VAE": "0"},
+            clear=False,
+        ), patch.object(
+            GENERATE_MUSIC_DECODE_MODULE.torch.cuda,
+            "is_available",
+            return_value=True,
+        ), patch.object(
+            GENERATE_MUSIC_DECODE_MODULE,
+            "get_effective_free_vram_gb",
+            return_value=2.0,
+        ):
+            self.assertFalse(host._should_try_cuda_vae_decode_from_cpu(using_mlx_vae=False))
+
+    def test_decode_pred_latents_falls_back_to_cpu_when_cuda_promotion_fails(self):
+        """Decode should continue on CPU when temporary CUDA VAE promotion fails."""
+
+        class _PromotionFailVae(_FakeVae):
+            """VAE stub that raises when moved to CUDA."""
+
+            def to(self, *args, **kwargs):
+                """Raise CUDA promotion failure and allow other moves."""
+                target = args[0] if args else kwargs.get("device")
+                if str(target) == "cuda":
+                    raise RuntimeError("cuda promotion failed")
+                return super().to(*args, **kwargs)
+
+        host = _Host()
+        host.use_mlx_vae = False
+        host.mlx_vae = None
+        host.vae = _PromotionFailVae()
+        pred_latents = torch.ones(1, 4, 3)
+        time_costs = {"total_time_cost": 1.0}
+
+        with patch.dict(
+            GENERATE_MUSIC_DECODE_MODULE.os.environ,
+            {"ACESTEP_CPU_STABILITY_USE_CUDA_VAE": "1"},
+            clear=False,
+        ), patch.object(
+            GENERATE_MUSIC_DECODE_MODULE.torch.cuda,
+            "is_available",
+            return_value=True,
+        ), patch.object(
+            GENERATE_MUSIC_DECODE_MODULE,
+            "get_effective_free_vram_gb",
+            return_value=3.0,
+        ), patch.object(
+            GENERATE_MUSIC_DECODE_MODULE.time,
+            "time",
+            side_effect=[30.0, 30.5],
+        ):
+            pred_wavs, _, updated_costs = host._decode_generate_music_pred_latents(
+                pred_latents=pred_latents,
+                progress=None,
+                use_tiled_decode=False,
+                time_costs=time_costs,
+            )
+
+        self.assertEqual(tuple(pred_wavs.shape), (1, 2, 8))
+        self.assertAlmostEqual(updated_costs["vae_decode_time_cost"], 0.5, places=6)
+
+    def test_decode_pred_latents_falls_back_when_cuda_kernel_image_is_missing(self):
+        """Decode should fallback to CPU and disable temp CUDA VAE after kernel-image failure."""
+        host = _Host()
+        host.use_mlx_vae = False
+        host.mlx_vae = None
+        pred_latents = _CudaSafeLatents(torch.ones(1, 4, 3))
+        time_costs = {"total_time_cost": 1.0}
+        call_count = {"count": 0}
+
+        def _tiled_decode(latents, progress_callback=None):
+            """Raise kernel-image failure once, then succeed on CPU fallback retry."""
+            _ = latents, progress_callback
+            call_count["count"] += 1
+            if call_count["count"] == 1:
+                raise RuntimeError("CUDA error: no kernel image is available for execution on the device")
+            return torch.ones(1, 2, 8)
+
+        host.tiled_decode = _tiled_decode
+        with patch.dict(
+            GENERATE_MUSIC_DECODE_MODULE.os.environ,
+            {"ACESTEP_CPU_STABILITY_USE_CUDA_VAE": "1"},
+            clear=False,
+        ), patch.object(
+            GENERATE_MUSIC_DECODE_MODULE.torch.cuda,
+            "is_available",
+            return_value=True,
+        ), patch.object(
+            GENERATE_MUSIC_DECODE_MODULE,
+            "get_effective_free_vram_gb",
+            return_value=3.0,
+        ), patch.object(
+            GENERATE_MUSIC_DECODE_MODULE.time,
+            "time",
+            side_effect=[40.0, 40.5],
+        ):
+            pred_wavs, _, updated_costs = host._decode_generate_music_pred_latents(
+                pred_latents=pred_latents,
+                progress=None,
+                use_tiled_decode=True,
+                time_costs=time_costs,
+            )
+            self.assertFalse(host._should_try_cuda_vae_decode_from_cpu(using_mlx_vae=False))
+
+        self.assertEqual(call_count["count"], 2)
+        self.assertEqual(tuple(pred_wavs.shape), (1, 2, 8))
+        self.assertAlmostEqual(updated_costs["vae_decode_time_cost"], 0.5, places=6)
 
     def test_prepare_decode_state_updates_progress_estimates(self):
         """It updates timing fields and progress estimate metadata for valid latents."""
@@ -149,11 +324,30 @@ class GenerateMusicDecodeMixinTests(unittest.TestCase):
         self.assertEqual(host._last_diffusion_per_step_sec, 0.2)
         self.assertEqual(host.estimate_calls[0]["infer_steps"], 8)
 
-    def test_prepare_decode_state_raises_for_nan_latents(self):
-        """It raises runtime error when diffusion latents contain NaN values."""
+    def test_prepare_decode_state_sanitizes_small_non_finite_latent_spikes(self):
+        """It replaces small non-finite latent spikes to keep decode path running."""
+        host = _Host()
+        latents = torch.ones(1, 1, 100)
+        latents[0, 0, 7] = float("nan")
+        outputs = {
+            "target_latents": latents,
+            "time_costs": {"total_time_cost": 1.0},
+        }
+        pred_latents, _ = host._prepare_generate_music_decode_state(
+            outputs=outputs,
+            infer_steps_for_progress=8,
+            actual_batch_size=1,
+            audio_duration=None,
+            latent_shift=0.0,
+            latent_rescale=1.0,
+        )
+        self.assertTrue(torch.isfinite(pred_latents).all())
+
+    def test_prepare_decode_state_raises_for_large_non_finite_latent_ratio(self):
+        """It raises runtime error when too much of the latent tensor is non-finite."""
         host = _Host()
         outputs = {
-            "target_latents": torch.tensor([[[float("nan")]]]),
+            "target_latents": torch.tensor([[[float("nan"), float("nan"), float("nan")]]]),
             "time_costs": {"total_time_cost": 1.0},
         }
         with self.assertRaises(RuntimeError):
@@ -190,6 +384,51 @@ class GenerateMusicDecodeMixinTests(unittest.TestCase):
         self.assertAlmostEqual(updated_costs["total_time_cost"], 2.5, places=6)
         self.assertAlmostEqual(updated_costs["offload_time_cost"], 0.25, places=6)
         self.assertEqual(host.progress_calls[0][0], 0.8)
+
+    def test_decode_pred_latents_uses_custom_decode_progress_start(self):
+        """It emits decode progress from the provided phase-aligned start value."""
+        host = _Host()
+        pred_latents = torch.ones(1, 4, 3)
+        time_costs = {"total_time_cost": 1.0}
+
+        def _progress(value, desc=None):
+            """Capture progress updates for assertions."""
+            host.progress_calls.append((value, desc))
+
+        with patch.object(GENERATE_MUSIC_DECODE_MODULE.time, "time", side_effect=[10.0, 10.5]):
+            host._decode_generate_music_pred_latents(
+                pred_latents=pred_latents,
+                progress=_progress,
+                use_tiled_decode=False,
+                time_costs=time_costs,
+                decode_progress_start=0.73,
+            )
+
+        self.assertEqual(host.progress_calls[0][0], 0.73)
+
+    def test_decode_pred_latents_reports_tiled_decode_chunk_progress(self):
+        """It advances progress during tiled decode chunk execution."""
+        host = _Host()
+        pred_latents = torch.ones(1, 4, 3)
+        time_costs = {"total_time_cost": 1.0}
+
+        def _progress(value, desc=None):
+            """Capture progress updates for assertions."""
+            host.progress_calls.append((value, desc))
+
+        with patch.object(GENERATE_MUSIC_DECODE_MODULE.time, "time", side_effect=[20.0, 20.5]):
+            host._decode_generate_music_pred_latents(
+                pred_latents=pred_latents,
+                progress=_progress,
+                use_tiled_decode=True,
+                time_costs=time_costs,
+                decode_progress_start=0.74,
+                decode_progress_end=0.96,
+            )
+
+        values = [value for value, _ in host.progress_calls]
+        self.assertTrue(any(value > 0.74 for value in values))
+        self.assertAlmostEqual(max(values), 0.96, places=6)
 
     def test_decode_pred_latents_restores_vae_device_on_decode_error(self):
         """It restores VAE device in the CPU-offload path even when decode raises."""

@@ -22,8 +22,19 @@ def register_generation_text_format_handlers(
 
     # ========== Format Caption Button ==========
     generation_section["format_caption_btn"].click(
-        fn=lambda caption, lyrics, bpm, duration, key_scale, time_sig, temp, top_k, top_p, debug: gen_h.handle_format_caption(
-            llm_handler, caption, lyrics, bpm, duration, key_scale, time_sig, temp, top_k, top_p, debug
+        fn=lambda caption, lyrics, bpm, duration, key_scale, time_sig, vocal_lang, temp, top_k, top_p, debug: gen_h.handle_format_caption(
+            llm_handler,
+            caption,
+            lyrics,
+            bpm,
+            duration,
+            key_scale,
+            time_sig,
+            temp,
+            top_k,
+            top_p,
+            debug,
+            vocal_lang,
         ),
         inputs=[
             generation_section["captions"],
@@ -32,6 +43,7 @@ def register_generation_text_format_handlers(
             generation_section["audio_duration"],
             generation_section["key_scale"],
             generation_section["time_signature"],
+            generation_section["vocal_language"],
             generation_section["lm_temperature"],
             generation_section["lm_top_k"],
             generation_section["lm_top_p"],
@@ -55,8 +67,19 @@ def register_generation_text_format_handlers(
 
     # ========== Format Lyrics Button ==========
     generation_section["format_lyrics_btn"].click(
-        fn=lambda caption, lyrics, bpm, duration, key_scale, time_sig, temp, top_k, top_p, debug: gen_h.handle_format_lyrics(
-            llm_handler, caption, lyrics, bpm, duration, key_scale, time_sig, temp, top_k, top_p, debug
+        fn=lambda caption, lyrics, bpm, duration, key_scale, time_sig, vocal_lang, temp, top_k, top_p, debug: gen_h.handle_format_lyrics(
+            llm_handler,
+            caption,
+            lyrics,
+            bpm,
+            duration,
+            key_scale,
+            time_sig,
+            temp,
+            top_k,
+            top_p,
+            debug,
+            vocal_lang,
         ),
         inputs=[
             generation_section["captions"],
@@ -65,6 +88,7 @@ def register_generation_text_format_handlers(
             generation_section["audio_duration"],
             generation_section["key_scale"],
             generation_section["time_signature"],
+            generation_section["vocal_language"],
             generation_section["lm_temperature"],
             generation_section["lm_top_k"],
             generation_section["lm_top_p"],
@@ -72,6 +96,101 @@ def register_generation_text_format_handlers(
         ],
         outputs=[
             generation_section["lyrics"],
+            generation_section["bpm"],
+            generation_section["audio_duration"],
+            generation_section["key_scale"],
+            generation_section["vocal_language"],
+            generation_section["time_signature"],
+            results_section["is_format_caption_state"],
+            results_section["status_output"],
+        ],
+    ).then(
+        fn=gen_h.uncheck_auto_for_populated_fields,
+        inputs=list(auto_checkbox_inputs),
+        outputs=list(auto_checkbox_outputs),
+    )
+
+    # ========== Generate Lyrics Button ==========
+    generation_section["generate_lyrics_btn"].click(
+        fn=lambda caption, bpm, duration, key_scale, time_sig, vocal_lang, temp, top_k, top_p, debug: gen_h.handle_generate_lyrics_from_caption(
+            llm_handler,
+            caption,
+            bpm,
+            duration,
+            key_scale,
+            time_sig,
+            vocal_lang,
+            temp,
+            top_k,
+            top_p,
+            debug,
+        ),
+        inputs=[
+            generation_section["captions"],
+            generation_section["bpm"],
+            generation_section["audio_duration"],
+            generation_section["key_scale"],
+            generation_section["time_signature"],
+            generation_section["vocal_language"],
+            generation_section["lm_temperature"],
+            generation_section["lm_top_k"],
+            generation_section["lm_top_p"],
+            generation_section["constrained_decoding_debug"],
+        ],
+        outputs=[
+            generation_section["lyrics"],
+            generation_section["bpm"],
+            generation_section["audio_duration"],
+            generation_section["key_scale"],
+            generation_section["vocal_language"],
+            generation_section["time_signature"],
+            results_section["is_format_caption_state"],
+            results_section["status_output"],
+        ],
+    ).then(
+        fn=gen_h.uncheck_auto_for_populated_fields,
+        inputs=list(auto_checkbox_inputs),
+        outputs=list(auto_checkbox_outputs),
+    ).then(
+        fn=gen_h.sync_vocal_language_after_lyrics_generation,
+        inputs=[
+            generation_section["lyrics"],
+            generation_section["vocal_language"],
+        ],
+        outputs=[
+            generation_section["instrumental_checkbox"],
+            generation_section["vocal_lang_auto"],
+            generation_section["vocal_language"],
+        ],
+    )
+
+    # ========== Random Narrative Caption Button ==========
+    generation_section["random_caption_btn"].click(
+        fn=lambda bpm, duration, key_scale, time_sig, vocal_lang, temp, top_k, top_p, debug: gen_h.handle_generate_random_narrative_caption(
+            llm_handler,
+            bpm,
+            duration,
+            key_scale,
+            time_sig,
+            temp,
+            top_k,
+            top_p,
+            debug,
+            vocal_lang,
+        ),
+        inputs=[
+            generation_section["bpm"],
+            generation_section["audio_duration"],
+            generation_section["key_scale"],
+            generation_section["time_signature"],
+            generation_section["vocal_language"],
+            generation_section["lm_temperature"],
+            generation_section["lm_top_k"],
+            generation_section["lm_top_p"],
+            generation_section["constrained_decoding_debug"],
+        ],
+        outputs=[
+            generation_section["captions"],
             generation_section["bpm"],
             generation_section["audio_duration"],
             generation_section["key_scale"],

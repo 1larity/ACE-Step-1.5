@@ -128,6 +128,8 @@
     "format_btn": "Format",
     "format_caption_btn": "Enhance Caption",
     "format_lyrics_btn": "Enhance Lyrics",
+    "generate_lyrics_btn": "Generate Lyrics",
+    "random_narrative_caption_btn": "Random Narrative Caption",
     "optional_params": "⚙️ Optional Parameters",
     "optional_music_props": "🎵 Music Properties",
     "optional_gen_settings": "📐 Generation Settings",
