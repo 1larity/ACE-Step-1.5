@@ -287,6 +287,17 @@ def create_gradio_interface(dit_handler, llm_handler, dataset_handler, init_para
             width: 13px !important;
             height: 13px !important;
         }
+        .lora-tabs-scroll [role="tablist"] {
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+            scrollbar-width: thin;
+            padding-bottom: 4px;
+        }
+        .lora-tabs-scroll [role="tablist"] button {
+            flex: 0 0 auto;
+            white-space: nowrap;
+        }
         """ + HELP_MODAL_CSS,
     ) as demo:
         

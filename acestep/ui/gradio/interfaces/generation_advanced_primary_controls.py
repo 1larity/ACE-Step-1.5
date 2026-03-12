@@ -6,57 +6,28 @@ import gradio as gr
 
 from acestep.ui.gradio.i18n import t
 
+from .generation_advanced_lora_tabs import build_lora_tabbed_controls
+
 
 def build_lora_controls() -> dict[str, Any]:
-    """Create LoRA adapter controls for loading and scaling inference adapters.
-
-    Args:
-        None.
-
-    Returns:
-        A component map containing LoRA path, action buttons, toggles, and status controls.
-    """
-
+    """Create tabbed LoRA adapter controls for loading and scaling inference adapters."""
     with gr.Accordion(t("generation.lora_accordion_title"), open=False, elem_classes=["has-info-container"]):
-        with gr.Row():
-            lora_path = gr.Textbox(
-                label=t("generation.lora_path_label"),
-                placeholder=t("generation.lora_path_placeholder"),
-                info=t("generation.lora_path_info"),
-                scale=3,
-            )
-            load_lora_btn = gr.Button(t("generation.load_lora_btn"), variant="secondary", scale=1)
-            unload_lora_btn = gr.Button(t("generation.unload_lora_btn"), variant="secondary", scale=1)
-        with gr.Row():
-            use_lora_checkbox = gr.Checkbox(
-                label=t("generation.use_lora_label"),
-                value=False,
-                info=t("generation.use_lora_info"),
-                scale=1,
-            )
-            lora_scale_slider = gr.Slider(
-                minimum=0.0,
-                maximum=1.0,
-                value=1.0,
-                step=0.05,
-                label=t("generation.lora_scale_label"),
-                info=t("generation.lora_scale_info"),
-                scale=2,
-            )
-        lora_status = gr.Textbox(
-            label=t("generation.lora_status_label"),
-            value=t("generation.lora_status_default"),
-            interactive=False,
-            lines=1,
-            elem_classes=["no-tooltip"],
-        )
+        lora_ui = build_lora_tabbed_controls()
+
+    first_slot = lora_ui["lora_slots"][0]
     return {
-        "lora_path": lora_path,
-        "load_lora_btn": load_lora_btn,
-        "unload_lora_btn": unload_lora_btn,
-        "use_lora_checkbox": use_lora_checkbox,
-        "lora_scale_slider": lora_scale_slider,
-        "lora_status": lora_status,
+        "lora_path": first_slot["lora_path"],
+        "load_lora_btn": first_slot["load_lora_btn"],
+        "unload_lora_btn": first_slot["unload_lora_btn"],
+        "use_lora_checkbox": first_slot["use_lora_checkbox"],
+        "lora_scale_slider": first_slot["lora_scale_slider"],
+        "lora_status": first_slot["lora_status"],
+        "lora_slots": lora_ui["lora_slots"],
+        "lora_add_slot_btn": lora_ui["lora_add_slot_btn"],
+        "lora_slot_count_state": lora_ui["lora_slot_count_state"],
+        "lora_slot_visibility_state": lora_ui["lora_slot_visibility_state"],
+        "lora_tabs": lora_ui["lora_tabs"],
+        "lora_tab_items": lora_ui["lora_tab_items"],
     }
 
 

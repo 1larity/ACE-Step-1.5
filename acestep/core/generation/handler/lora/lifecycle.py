@@ -188,6 +188,22 @@ def _default_adapter_name_from_path(lora_path: str) -> str:
     return name if name else "default"
 
 
+def _detach_peft_decoder(decoder: Any) -> Any:
+    """Return the raw decoder module from a PEFT wrapper when available."""
+    tuner = getattr(decoder, "base_model", None)
+    unload = getattr(tuner, "unload", None)
+    if callable(unload):
+        logger.info("Detaching PEFT adapter wrappers from decoder")
+        return unload()
+
+    get_base_model = getattr(decoder, "get_base_model", None)
+    if callable(get_base_model):
+        logger.warning("PEFT unload() unavailable; falling back to get_base_model()")
+        return get_base_model()
+
+    return decoder
+
+
 def add_lora(self, lora_path: str, adapter_name: str | None = None) -> str:
     """Load a LoRA adapter into the decoder under the given name.
 
@@ -388,7 +404,7 @@ def remove_lora(self, adapter_name: str) -> str:
             if hasattr(self, "_memory_allocated"):
                 mem_before = self._memory_allocated() / (1024**3)
                 logger.info(f"VRAM before LoRA unload: {mem_before:.2f}GB")
-            self.model.decoder = decoder.get_base_model()
+            self.model.decoder = _detach_peft_decoder(decoder)
             load_result = self.model.decoder.load_state_dict(self._base_decoder, strict=False)
             if load_result.missing_keys:
                 logger.warning(f"Missing keys when restoring decoder: {load_result.missing_keys[:5]}")
@@ -466,7 +482,7 @@ def unload_lora(self) -> str:
 
         if PeftModel is not None and isinstance(self.model.decoder, PeftModel):
             logger.info("Extracting base model from PEFT wrapper")
-            self.model.decoder = self.model.decoder.get_base_model()
+            self.model.decoder = _detach_peft_decoder(self.model.decoder)
             load_result = self.model.decoder.load_state_dict(self._base_decoder, strict=False)
             if load_result.missing_keys:
                 logger.warning(f"Missing keys when restoring decoder: {load_result.missing_keys[:5]}")

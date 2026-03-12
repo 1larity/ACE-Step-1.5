@@ -48,6 +48,8 @@ class _DummyHandler:
         self.use_lora = False
         self.lora_scale = 1.0
         self._lora_active_adapter = None
+        self._active_loras = {}
+        self._adapter_type = None
         self._lora_service = SimpleNamespace(
             registry={},
             scale_state={},
@@ -71,6 +73,35 @@ class _DummyHandler:
     def add_lora(self, lora_path, adapter_name=None):
         """Forward to lifecycle implementation to mimic mixin wiring."""
         return lifecycle.add_lora(self, lora_path, adapter_name=adapter_name)
+
+
+class _FakePeftTuner:
+    """Tiny PEFT tuner stub exposing ``unload()``."""
+
+    def __init__(self, decoder) -> None:
+        self._decoder = decoder
+        self.unload_calls = 0
+
+    def unload(self):
+        """Return the raw decoder and record the detach call."""
+        self.unload_calls += 1
+        return self._decoder
+
+
+class _FakePeftDecoder:
+    """PEFT wrapper stub that should be detached via ``base_model.unload()``."""
+
+    def __init__(self, decoder, adapter_name: str = "slot_1") -> None:
+        self.base_model = _FakePeftTuner(decoder)
+        self.peft_config = {adapter_name: object()}
+
+    def delete_adapter(self, adapter_name: str) -> None:
+        """Mirror the PEFT adapter deletion hook used by ``remove_lora``."""
+        self.peft_config.pop(adapter_name, None)
+
+    def get_base_model(self):
+        """Fail if lifecycle falls back to the stale wrapped decoder path."""
+        raise AssertionError("Expected unload() to detach PEFT wrappers before restore")
 
 
 class LifecycleTests(unittest.TestCase):
@@ -259,6 +290,47 @@ class LifecycleTests(unittest.TestCase):
         self.assertIn("❌ Failed to unload LoRA", message)
         self.assertIn("restore failed", message)
         handler.model.decoder.load_state_dict.assert_not_called()
+
+
+    def test_unload_lora_uses_peft_unload_before_restoring_state(self):
+        """PEFT unload should detach adapter wrappers before state restore."""
+        handler = _DummyHandler()
+        handler.lora_loaded = True
+        handler.use_lora = True
+        handler._base_decoder = {"w": torch.ones(1)}
+        base_decoder = _DummyDecoder()
+        base_decoder.load_state_dict = Mock(return_value=SimpleNamespace(missing_keys=[], unexpected_keys=[]))
+        wrapped_decoder = _FakePeftDecoder(base_decoder)
+        handler.model.decoder = wrapped_decoder
+
+        with patch.dict("sys.modules", {"peft": SimpleNamespace(PeftModel=_FakePeftDecoder)}):
+            message = lifecycle.unload_lora(handler)
+
+        self.assertIn("using base model", message)
+        self.assertEqual(wrapped_decoder.base_model.unload_calls, 1)
+        self.assertIs(handler.model.decoder, base_decoder)
+        base_decoder.load_state_dict.assert_called_once_with(handler._base_decoder, strict=False)
+
+    def test_remove_lora_last_adapter_uses_peft_unload_before_restoring_state(self):
+        """Removing the final adapter should detach PEFT wrappers before restore."""
+        handler = _DummyHandler()
+        handler.lora_loaded = True
+        handler.use_lora = True
+        handler._adapter_type = "lora"
+        handler._base_decoder = {"w": torch.ones(1)}
+        handler._active_loras = {"slot_1": 1.0}
+        base_decoder = _DummyDecoder()
+        base_decoder.load_state_dict = Mock(return_value=SimpleNamespace(missing_keys=[], unexpected_keys=[]))
+        wrapped_decoder = _FakePeftDecoder(base_decoder)
+        handler.model.decoder = wrapped_decoder
+
+        with patch.dict("sys.modules", {"peft": SimpleNamespace(PeftModel=_FakePeftDecoder)}):
+            message = lifecycle.remove_lora(handler, "slot_1")
+
+        self.assertIn("using base model", message)
+        self.assertEqual(wrapped_decoder.base_model.unload_calls, 1)
+        self.assertIs(handler.model.decoder, base_decoder)
+        base_decoder.load_state_dict.assert_called_once_with(handler._base_decoder, strict=False)
 
 
 if __name__ == "__main__":
