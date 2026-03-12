@@ -15,6 +15,7 @@ from .context import (
     build_auto_checkbox_inputs,
     build_auto_checkbox_outputs,
 )
+from .generation_lora_slot_wiring import register_lora_slot_handlers
 
 
 def register_generation_service_handlers(
@@ -120,34 +121,7 @@ def register_generation_service_handlers(
     )
 
     # ========== LoRA Handlers ==========
-    generation_section["load_lora_btn"].click(
-        fn=dit_handler.load_lora,
-        inputs=[generation_section["lora_path"]],
-        outputs=[generation_section["lora_status"]],
-    ).then(
-        fn=lambda: gr.update(value=True),
-        outputs=[generation_section["use_lora_checkbox"]],
-    )
-
-    generation_section["unload_lora_btn"].click(
-        fn=dit_handler.unload_lora,
-        outputs=[generation_section["lora_status"]],
-    ).then(
-        fn=lambda: gr.update(value=False),
-        outputs=[generation_section["use_lora_checkbox"]],
-    )
-
-    generation_section["use_lora_checkbox"].change(
-        fn=dit_handler.set_use_lora,
-        inputs=[generation_section["use_lora_checkbox"]],
-        outputs=[generation_section["lora_status"]],
-    )
-
-    generation_section["lora_scale_slider"].change(
-        fn=dit_handler.set_lora_scale,
-        inputs=[generation_section["lora_scale_slider"]],
-        outputs=[generation_section["lora_status"]],
-    )
+    register_lora_slot_handlers(generation_section, dit_handler)
 
     # ========== Auto Checkbox Handlers ==========
     auto_field_map = {

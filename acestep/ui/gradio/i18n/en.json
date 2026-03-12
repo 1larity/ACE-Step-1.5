@@ -221,6 +221,8 @@
     "lora_path_placeholder": "./lora_output/final/adapter",
     "lora_path_info": "Path to trained LoRA adapter directory",
     "load_lora_btn": "📥 Load LoRA",
+    "lora_add_adapter_btn": "+ Add Adapter",
+    "lora_remove_tab_btn": "Remove Tab",
     "unload_lora_btn": "🗑️ Unload",
     "use_lora_label": "Use LoRA",
     "use_lora_info": "Enable LoRA adapter for inference",
