@@ -7,8 +7,10 @@ from typing import Optional
 import torch
 from loguru import logger
 
+from .init_service_loader_components import InitServiceLoaderComponentsMixin
 
-class InitServiceLoaderMixin:
+
+class InitServiceLoaderMixin(InitServiceLoaderComponentsMixin):
     """Helpers for heavy model component loading."""
 
     def _cuda_supports_bool_argsort(self) -> bool:
@@ -22,22 +24,17 @@ class InitServiceLoaderMixin:
             _ = torch.tensor([True, False], device=target_device).argsort()
             return True
         except RuntimeError as exc:
-            if "bool dtype" in str(exc):
-                return False
-            return True
+            return "bool dtype" not in str(exc)
 
     def _apply_cuda_bool_argsort_workaround(self) -> None:
         """Patch dynamic model helpers when bool argsort is unsupported on CUDA."""
         target_device = str(getattr(self, "device", ""))
-        if not target_device.startswith("cuda"):
-            return
-        if self._cuda_supports_bool_argsort():
+        if not target_device.startswith("cuda") or self._cuda_supports_bool_argsort():
             return
 
         model_module_name = getattr(self.model.__class__, "__module__", "")
         if not model_module_name:
             return
-
         try:
             model_module = importlib.import_module(model_module_name)
         except Exception as exc:
@@ -48,9 +45,9 @@ class InitServiceLoaderMixin:
             return
 
         original_pack_sequences = getattr(model_module, "pack_sequences", None)
-        if original_pack_sequences is None:
-            return
-        if getattr(original_pack_sequences, "__acestep_bool_argsort_patched__", False):
+        if original_pack_sequences is None or getattr(
+            original_pack_sequences, "__acestep_bool_argsort_patched__", False
+        ):
             return
 
         def _pack_sequences_cuda_compat(hidden1, hidden2, mask1, mask2):
@@ -105,13 +102,8 @@ class InitServiceLoaderMixin:
         logger.info(f"[initialize_service] DiT quantized with: {quantization}")
 
     def _load_main_model_from_checkpoint(
-        self,
-        *,
-        model_checkpoint_path: str,
-        device: str,
-        use_flash_attention: bool,
-        compile_model: bool,
-        quantization: Optional[str],
+        self, *, model_checkpoint_path: str, device: str, use_flash_attention: bool,
+        compile_model: bool, quantization: Optional[str],
     ) -> str:
         """Load DiT, apply compile/quantization options, and return selected attention backend."""
         from transformers import AutoModel
@@ -133,15 +125,12 @@ class InitServiceLoaderMixin:
                     exc,
                 )
 
-        if use_flash_attention and self.is_flash_attention_available(device):
-            attn_implementation = "flash_attention_2"
-        else:
-            if use_flash_attention:
-                logger.warning(
-                    f"[initialize_service] Flash attention requested but unavailable for device={device}. "
-                    "Falling back to SDPA."
-                )
-            attn_implementation = "sdpa"
+        attn_implementation = "flash_attention_2" if use_flash_attention and self.is_flash_attention_available(device) else "sdpa"
+        if use_flash_attention and attn_implementation != "flash_attention_2":
+            logger.warning(
+                f"[initialize_service] Flash attention requested but unavailable for device={device}. "
+                "Falling back to SDPA."
+            )
 
         attn_candidates = [attn_implementation]
         if "sdpa" not in attn_candidates:
@@ -196,43 +185,3 @@ class InitServiceLoaderMixin:
         silence_latent_device = "cpu" if self.offload_to_cpu and self.offload_dit_to_cpu else device
         self.silence_latent = self.silence_latent.to(silence_latent_device).to(self.dtype)
         return attn_implementation
-
-    def _load_vae_model(self, *, checkpoint_dir: str, device: str, compile_model: bool) -> str:
-        """Load and optionally compile the VAE module."""
-        from diffusers.models import AutoencoderOobleck
-
-        vae_checkpoint_path = os.path.join(checkpoint_dir, "vae")
-        if not os.path.exists(vae_checkpoint_path):
-            raise FileNotFoundError(f"VAE checkpoint not found at {vae_checkpoint_path}")
-
-        self.vae = AutoencoderOobleck.from_pretrained(vae_checkpoint_path)
-        if not self.offload_to_cpu:
-            vae_dtype = self._get_vae_dtype(device)
-            self.vae = self.vae.to(device).to(vae_dtype)
-        else:
-            vae_dtype = self._get_vae_dtype("cpu")
-            self.vae = self.vae.to("cpu").to(vae_dtype)
-        self.vae.eval()
-
-        if compile_model:
-            self._ensure_len_for_compile(self.vae, "vae")
-            self.vae = torch.compile(self.vae)
-
-        return vae_checkpoint_path
-
-    def _load_text_encoder_and_tokenizer(self, *, checkpoint_dir: str, device: str) -> str:
-        """Load text tokenizer and embedding model."""
-        from transformers import AutoModel, AutoTokenizer
-
-        text_encoder_path = os.path.join(checkpoint_dir, "Qwen3-Embedding-0.6B")
-        if not os.path.exists(text_encoder_path):
-            raise FileNotFoundError(f"Text encoder not found at {text_encoder_path}")
-
-        self.text_tokenizer = AutoTokenizer.from_pretrained(text_encoder_path)
-        self.text_encoder = AutoModel.from_pretrained(text_encoder_path)
-        if not self.offload_to_cpu:
-            self.text_encoder = self.text_encoder.to(device).to(self.dtype)
-        else:
-            self.text_encoder = self.text_encoder.to("cpu").to(self.dtype)
-        self.text_encoder.eval()
-        return text_encoder_path

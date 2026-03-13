@@ -1,12 +1,11 @@
-"""Unit tests for service_init.init_service_wrapper checkpoint path handling."""
+"""Unit tests for service_init.init_service_wrapper device handling."""
 
-import os
 import unittest
 from unittest.mock import MagicMock, patch
 
 
-class InitServiceWrapperPathTests(unittest.TestCase):
-    """Verify init_service_wrapper passes project_root (not checkpoint dir) to initialize_service."""
+class InitServiceWrapperDeviceResolutionTests(unittest.TestCase):
+    """Verify device handling for LLM initialization."""
 
     def _import_module(self):
         """Import service_init lazily to avoid heavy transitive imports."""
@@ -15,8 +14,52 @@ class InitServiceWrapperPathTests(unittest.TestCase):
         return service_init
 
     @patch("acestep.ui.gradio.events.generation.service_init.get_global_gpu_config")
-    def test_passes_project_root_not_checkpoint_dir(self, mock_gpu_config):
-        """It does not pass the checkpoint dropdown value as project_root."""
+    def test_reinit_without_llm_preserves_resolved_device(self, mock_gpu_config):
+        """It does not overwrite a resolved LLM device when init_llm is false."""
+        module = self._import_module()
+
+        mock_gpu_config.return_value = MagicMock(
+            available_lm_models=["acestep-5Hz-lm-1.7B"],
+            lm_backend_restriction=None,
+            tier="tier6",
+            gpu_memory_gb=24.0,
+            max_duration_with_lm=600,
+            max_duration_without_lm=600,
+            max_batch_size_with_lm=4,
+            max_batch_size_without_lm=8,
+        )
+
+        dit_handler = MagicMock()
+        dit_handler.initialize_service.return_value = ("ok", True)
+        dit_handler.model = MagicMock()
+        dit_handler.is_turbo_model.return_value = True
+
+        llm_handler = MagicMock()
+        llm_handler.llm_initialized = True
+        llm_handler.device = "cuda"
+
+        module.init_service_wrapper(
+            dit_handler,
+            llm_handler,
+            "/some/project/checkpoints",
+            "acestep-v15-turbo",
+            "auto",
+            False,
+            None,
+            "vllm",
+            use_flash_attention=False,
+            offload_to_cpu=False,
+            offload_dit_to_cpu=False,
+            compile_model=False,
+            quantization=False,
+        )
+
+        llm_handler.initialize.assert_not_called()
+        self.assertEqual(llm_handler.device, "cuda")
+
+    @patch("acestep.ui.gradio.events.generation.service_init.get_global_gpu_config")
+    def test_init_llm_with_auto_device_calls_initialize(self, mock_gpu_config):
+        """It passes the raw auto device through to llm_handler.initialize."""
         module = self._import_module()
 
         mock_gpu_config.return_value = MagicMock(
@@ -37,80 +80,27 @@ class InitServiceWrapperPathTests(unittest.TestCase):
 
         llm_handler = MagicMock()
         llm_handler.llm_initialized = False
+        llm_handler.initialize.return_value = ("LLM initialized", True)
 
         module.init_service_wrapper(
             dit_handler,
             llm_handler,
             "/some/project/checkpoints",
             "acestep-v15-turbo",
-            "cpu",
-            False,
-            None,
-            "vllm",
-            False,
-            False,
-            False,
-            False,
-            False,
+            "auto",
+            True,
+            "acestep-5Hz-lm-1.7B",
+            "pt",
+            use_flash_attention=False,
+            offload_to_cpu=False,
+            offload_dit_to_cpu=False,
+            compile_model=False,
+            quantization=False,
         )
 
-        actual_project_root = dit_handler.initialize_service.call_args[0][0]
-        self.assertFalse(
-            actual_project_root.rstrip("/").endswith("checkpoints"),
-            f"project_root must not be the checkpoints dir, got: {actual_project_root}",
-        )
-
-    @patch("acestep.ui.gradio.events.generation.service_init.get_global_gpu_config")
-    def test_project_root_is_consistent_with_checkpoint_dir(self, mock_gpu_config):
-        """It computes a project root whose checkpoints path is not double-nested."""
-        module = self._import_module()
-
-        mock_gpu_config.return_value = MagicMock(
-            available_lm_models=[],
-            lm_backend_restriction=None,
-            tier="tier6",
-            gpu_memory_gb=24.0,
-            max_duration_with_lm=600,
-            max_duration_without_lm=600,
-            max_batch_size_with_lm=4,
-            max_batch_size_without_lm=8,
-        )
-
-        dit_handler = MagicMock()
-        dit_handler.initialize_service.return_value = ("ok", True)
-        dit_handler.model = MagicMock()
-        dit_handler.is_turbo_model.return_value = True
-
-        llm_handler = MagicMock()
-        llm_handler.llm_initialized = False
-
-        module.init_service_wrapper(
-            dit_handler,
-            llm_handler,
-            "/any/path/checkpoints",
-            "acestep-v15-turbo",
-            "cpu",
-            False,
-            None,
-            "vllm",
-            False,
-            False,
-            False,
-            False,
-            False,
-        )
-
-        actual_project_root = dit_handler.initialize_service.call_args[0][0]
-        expected_checkpoints = os.path.join(actual_project_root, "checkpoints")
-        self.assertTrue(
-            os.path.isabs(expected_checkpoints) or actual_project_root,
-            "project_root should be a meaningful path",
-        )
-        self.assertNotIn(
-            "checkpoints/checkpoints",
-            expected_checkpoints,
-            f"Double nesting detected: {expected_checkpoints}",
-        )
+        llm_handler.initialize.assert_called_once()
+        _, call_kwargs = llm_handler.initialize.call_args
+        self.assertEqual(call_kwargs.get("device"), "auto")
 
 
 if __name__ == "__main__":
