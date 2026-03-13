@@ -297,6 +297,7 @@ if exist "%~dp0python_embeded\python.exe" (
     )
 
     call :EnsureLegacyNvidiaTorchCompat
+    if !ERRORLEVEL! NEQ 0 exit /b !ERRORLEVEL!
 
     echo Starting ACE-Step Gradio UI...
     echo.
