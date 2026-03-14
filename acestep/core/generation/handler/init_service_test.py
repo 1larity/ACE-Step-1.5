@@ -869,7 +869,6 @@ class RocmDtypeTests(unittest.TestCase):
             result = host._get_vae_dtype("cuda")
         self.assertEqual(result, torch.bfloat16)
 
-<<<<<<< HEAD
     def test_get_vae_dtype_returns_float16_on_pre_ampere_cuda(self):
         """It returns float16 for VAE on pre-Ampere CUDA devices."""
         host = _VaeHost(project_root="K:/fake_root", device="cuda")
