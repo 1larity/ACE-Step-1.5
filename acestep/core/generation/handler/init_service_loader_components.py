@@ -6,10 +6,35 @@ import torch
 
 
 class InitServiceLoaderComponentsMixin:
-    """Helpers for loading non-DiT model components."""
+    """Load VAE and text components used during service initialization.
+
+    Host contract:
+        The concrete host in the MRO must provide ``offload_to_cpu``, ``dtype``,
+        ``_get_vae_dtype(device)``, and ``_ensure_len_for_compile(module, name)``.
+        The helpers also assign ``self.vae``, ``self.text_encoder``, and
+        ``self.text_tokenizer`` as side effects.
+    """
 
     def _load_vae_model(self, *, checkpoint_dir: str, device: str, compile_model: bool) -> str:
-        """Load and optionally compile the VAE module."""
+        """Load the VAE checkpoint and return its resolved path.
+
+        Args:
+            checkpoint_dir: Root checkpoint directory containing the ``vae`` subdirectory.
+            device: Target runtime device when CPU offload is disabled.
+            compile_model: Whether to compile the loaded VAE after device placement.
+
+        Returns:
+            The resolved VAE checkpoint path as a string.
+
+        Raises:
+            FileNotFoundError: If ``checkpoint_dir`` does not contain a valid ``vae`` checkpoint.
+            Exception: Propagates loader, device transfer, or compile errors from dependencies.
+
+        Side Effects:
+            Assigns ``self.vae``, selects a device-appropriate dtype via
+            ``_get_vae_dtype()``, may offload the module to CPU, switches the module
+            to eval mode, and may compile it after calling ``_ensure_len_for_compile``.
+        """
         from diffusers.models import AutoencoderOobleck
 
         vae_checkpoint_path = os.path.join(checkpoint_dir, "vae")
@@ -44,6 +69,7 @@ class InitServiceLoaderComponentsMixin:
         if not self.offload_to_cpu:
             self.text_encoder = self.text_encoder.to(device).to(self.dtype)
         else:
-            self.text_encoder = self.text_encoder.to("cpu").to(self.dtype)
+            cpu_dtype = self._get_vae_dtype("cpu")
+            self.text_encoder = self.text_encoder.to("cpu").to(cpu_dtype)
         self.text_encoder.eval()
         return text_encoder_path
