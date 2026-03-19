@@ -43,6 +43,19 @@ def _build_safe_debug_payload_view(payload: dict[str, object]) -> dict[str, obje
     return safe_payload
 
 
+def _build_safe_debug_messages_view(messages: list[dict[str, str]]) -> list[dict[str, object]]:
+    """Return a non-sensitive summary of request messages for debug logs."""
+
+    return [
+        {
+            "role": str(message.get("role", "")).strip(),
+            "content_length": len(str(message.get("content", ""))),
+        }
+        for message in messages
+        if isinstance(message, dict)
+    ]
+
+
 def request_external_plan(
     *,
     intent: str,
@@ -99,7 +112,7 @@ def request_external_plan(
             f"protocol={protocol}\n"
             f"model={model}\n"
             f"base_url={base_url}\n"
-            f"messages={json.dumps(messages, ensure_ascii=False, indent=2)}\n"
+            f"messages={json.dumps(_build_safe_debug_messages_view(messages), ensure_ascii=False, indent=2)}\n"
             f"payload={json.dumps(_build_safe_debug_payload_view(payload), ensure_ascii=False, indent=2)}",
         )
 

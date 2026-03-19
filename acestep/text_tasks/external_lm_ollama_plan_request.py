@@ -13,6 +13,39 @@ from .external_ai_types import ExternalAIClientError
 from .external_lm_http_common import ollama_native_api_url, post_json
 
 
+def _build_safe_debug_payload_view(payload: dict[str, object]) -> dict[str, object]:
+    """Return a non-sensitive subset of the Ollama request payload for debug logs."""
+
+    safe_payload = {
+        "model": payload.get("model"),
+        "stream": payload.get("stream"),
+        "think": payload.get("think"),
+    }
+    if "format" in payload:
+        safe_payload["format"] = {"type": payload["format"].get("type", "object")}
+    if "options" in payload:
+        options = payload.get("options") or {}
+        if isinstance(options, dict):
+            safe_payload["options"] = {
+                "temperature": options.get("temperature"),
+                "num_predict": options.get("num_predict"),
+            }
+    return safe_payload
+
+
+def _build_safe_debug_messages_view(messages: list[dict[str, str]]) -> list[dict[str, object]]:
+    """Return a non-sensitive summary of Ollama request messages for debug logs."""
+
+    return [
+        {
+            "role": str(message.get("role", "")).strip(),
+            "content_length": len(str(message.get("content", ""))),
+        }
+        for message in messages
+        if isinstance(message, dict)
+    ]
+
+
 def request_ollama_plan(
     *,
     model: str,
@@ -67,8 +100,8 @@ def request_ollama_plan(
             "protocol=ollama_chat\n"
             f"model={model}\n"
             f"base_url={base_url}\n"
-            f"messages={json.dumps(messages, ensure_ascii=False, indent=2)}\n"
-            f"payload={json.dumps(payload, ensure_ascii=False, indent=2)}",
+            f"messages={json.dumps(_build_safe_debug_messages_view(messages), ensure_ascii=False, indent=2)}\n"
+            f"payload={json.dumps(_build_safe_debug_payload_view(payload), ensure_ascii=False, indent=2)}",
         )
 
     raw_response = post_json(

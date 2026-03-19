@@ -233,7 +233,8 @@ class ExternalLmTasksTests(unittest.TestCase):
 
         logged_text = "\n".join(call.args[1] for call in debug_log_mock.call_args_list)
         self.assertIn("External LM format request", logged_text)
-        self.assertIn("Tropical funk", logged_text)
+        self.assertIn("\"role\": \"system\"", logged_text)
+        self.assertIn("\"content_length\":", logged_text)
         self.assertIn("External LM raw response", logged_text)
 
     @patch("acestep.debug_utils.debug_log_for")
@@ -290,10 +291,13 @@ class ExternalLmTasksTests(unittest.TestCase):
 
         logged_text = "\n".join(call.args[1] for call in debug_log_mock.call_args_list)
         self.assertIn("External LM format request", logged_text)
+        self.assertIn("\"role\": \"system\"", logged_text)
+        self.assertIn("\"content_length\":", logged_text)
         self.assertIn("\"model\": \"gpt-4o-mini\"", logged_text)
         self.assertIn("\"max_tokens\": 768", logged_text)
         self.assertNotIn("Authorization", logged_text)
         self.assertNotIn("test-key", logged_text)
+        self.assertNotIn("synth pop", logged_text)
 
     @patch("acestep.text_tasks.external_lm_plan_requests.resolve_external_api_key_for_runtime")
     def test_format_sample_with_external_provider_uses_native_ollama_chat_without_thinking(
