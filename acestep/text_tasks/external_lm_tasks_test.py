@@ -236,6 +236,65 @@ class ExternalLmTasksTests(unittest.TestCase):
         self.assertIn("Tropical funk", logged_text)
         self.assertIn("External LM raw response", logged_text)
 
+    @patch("acestep.debug_utils.debug_log_for")
+    @patch("acestep.text_tasks.external_lm_http_common.request.urlopen")
+    @patch("acestep.text_tasks.external_lm_plan_requests.resolve_external_api_key_for_runtime")
+    def test_non_ollama_debug_logging_omits_api_key_and_logs_safe_payload_view(
+        self,
+        resolve_api_key_mock,
+        urlopen_mock,
+        debug_log_mock,
+    ) -> None:
+        """Non-Ollama debug logs should exclude secrets and log only safe payload fields."""
+
+        resolve_api_key_mock.return_value = "test-key"
+        urlopen_mock.return_value = _FakeResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "caption": "A bright synth-pop groove with glossy hooks.",
+                                    "lyrics": "City lights / we glow tonight",
+                                    "bpm": 120,
+                                    "duration": 30,
+                                    "key_scale": "C Major",
+                                    "time_signature": "4/4",
+                                    "vocal_language": "en",
+                                    "instrumental": False,
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+        )
+
+        with patch.dict(
+            "os.environ",
+            {
+                "ACESTEP_EXTERNAL_LM_PROVIDER": "openai",
+                "ACESTEP_EXTERNAL_LM_MODEL": "gpt-4o-mini",
+                "ACESTEP_EXTERNAL_LM_PROTOCOL": "openai_chat",
+                "ACESTEP_EXTERNAL_BASE_URL": "https://api.openai.com/v1/chat/completions",
+            },
+            clear=False,
+        ):
+            format_sample_with_external_provider(
+                caption="synth pop",
+                lyrics="",
+                user_metadata={"bpm": 120},
+                debug=True,
+            )
+
+        logged_text = "\n".join(call.args[1] for call in debug_log_mock.call_args_list)
+        self.assertIn("External LM format request", logged_text)
+        self.assertIn("\"model\": \"gpt-4o-mini\"", logged_text)
+        self.assertIn("\"max_tokens\": 768", logged_text)
+        self.assertNotIn("Authorization", logged_text)
+        self.assertNotIn("test-key", logged_text)
+
     @patch("acestep.text_tasks.external_lm_plan_requests.resolve_external_api_key_for_runtime")
     def test_format_sample_with_external_provider_uses_native_ollama_chat_without_thinking(
         self,

@@ -24,6 +24,25 @@ from .external_lm_providers import get_external_provider_profile
 from .secure_secret_store import SecretStoreError
 
 
+def _build_safe_debug_payload_view(payload: dict[str, object]) -> dict[str, object]:
+    """Return a non-sensitive subset of the request payload for debug logs."""
+
+    safe_payload = {
+        "model": payload.get("model"),
+        "max_tokens": payload.get("max_tokens"),
+        "temperature": payload.get("temperature"),
+    }
+    if "response_format" in payload:
+        safe_payload["response_format"] = payload["response_format"]
+    if "thinking" in payload:
+        safe_payload["thinking"] = payload["thinking"]
+    if "stop" in payload:
+        safe_payload["stop"] = payload["stop"]
+    if "stop_sequences" in payload:
+        safe_payload["stop_sequences"] = payload["stop_sequences"]
+    return safe_payload
+
+
 def request_external_plan(
     *,
     intent: str,
@@ -81,7 +100,7 @@ def request_external_plan(
             f"model={model}\n"
             f"base_url={base_url}\n"
             f"messages={json.dumps(messages, ensure_ascii=False, indent=2)}\n"
-            f"payload={json.dumps(payload, ensure_ascii=False, indent=2)}",
+            f"payload={json.dumps(_build_safe_debug_payload_view(payload), ensure_ascii=False, indent=2)}",
         )
 
     raw_response = post_json(
