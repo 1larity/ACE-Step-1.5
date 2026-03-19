@@ -3,7 +3,9 @@ Debug helpers (global).
 """
 from __future__ import annotations
 
+import json
 import re
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Optional, Callable, Union
 
@@ -125,6 +127,55 @@ _SENSITIVE_INLINE_PATTERNS = (
     ),
 )
 
+_SENSITIVE_KEYS = {
+    "access_token",
+    "api_key",
+    "apikey",
+    "auth",
+    "authorization",
+    "client_secret",
+    "passphrase",
+    "password",
+    "refresh_token",
+    "secret",
+    "token",
+    "x-api-key",
+}
+
+
+def _redact_sensitive_mapping(obj: object) -> object:
+    """Return a copy of a container with sensitive values replaced."""
+
+    if isinstance(obj, Mapping):
+        redacted_dict: dict[object, object] = {}
+        for key, value in obj.items():
+            key_str = str(key).strip().lower()
+            if key_str in _SENSITIVE_KEYS:
+                redacted_dict[key] = "[REDACTED]"
+            else:
+                redacted_dict[key] = _redact_sensitive_mapping(value)
+        return redacted_dict
+    if isinstance(obj, list):
+        return [_redact_sensitive_mapping(item) for item in obj]
+    if isinstance(obj, tuple):
+        return tuple(_redact_sensitive_mapping(item) for item in obj)
+    if isinstance(obj, set):
+        return {_redact_sensitive_mapping(item) for item in obj}
+    return obj
+
+
+def _stringify_debug_message(message: object) -> str:
+    """Convert debug content to text after redacting structured secrets."""
+
+    if isinstance(message, (Mapping, list, tuple, set)):
+        return json.dumps(
+            _redact_sensitive_mapping(message),
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+    return str(message)
+
 
 def _normalize_mode(mode: str) -> str:
     return (mode or "").strip().upper()
@@ -134,6 +185,19 @@ def _redact_sensitive_text(text: str) -> str:
     """Redact common secret-like values from debug log messages."""
 
     redacted = text
+    stripped = redacted.lstrip()
+    if stripped.startswith("{") or stripped.startswith("["):
+        try:
+            parsed = json.loads(redacted)
+        except Exception:
+            parsed = None
+        if parsed is not None:
+            redacted = json.dumps(
+                _redact_sensitive_mapping(parsed),
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            )
     for pattern, replacement in _SENSITIVE_INLINE_PATTERNS:
         redacted = pattern.sub(replacement, redacted)
     return redacted
@@ -153,7 +217,7 @@ def debug_log(message: Union[str, Callable[[], str]], *, mode: str = TENSOR_DEBU
         return
     if callable(message):
         message = message()
-    redacted_message = _redact_sensitive_text(str(message))
+    redacted_message = _redact_sensitive_text(_stringify_debug_message(message))
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     print(  # lgtm[py/clear-text-logging-sensitive-data]
         f"[{prefix}] {ts} {redacted_message}",
