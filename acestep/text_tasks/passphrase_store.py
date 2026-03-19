@@ -24,7 +24,10 @@ def resolve_runtime_passphrase() -> str | None:
 
     file_path_raw = os.getenv("ACESTEP_GLM_STORE_PASSPHRASE_FILE", "").strip()
     if file_path_raw:
-        text = Path(file_path_raw).expanduser().read_text(encoding="utf-8").strip()
+        try:
+            text = Path(file_path_raw).expanduser().read_text(encoding="utf-8").strip()
+        except OSError:
+            text = ""
         if text:
             return text
 

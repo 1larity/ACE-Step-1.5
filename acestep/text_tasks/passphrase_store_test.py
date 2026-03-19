@@ -59,6 +59,23 @@ class PassphraseStoreTests(unittest.TestCase):
         self.assertEqual(captured["passphrase"], "saved-secret")
         self.assertEqual(resolved, "saved-secret")
 
+    def test_resolve_falls_back_to_keyring_when_passphrase_file_is_missing(self) -> None:
+        """A missing passphrase file should not block later fallback providers."""
+
+        fake_keyring = types.SimpleNamespace()
+        fake_keyring.get_password = lambda *_args: "keyring-secret"
+
+        with patch.object(passphrase_store.shutil, "which", return_value=None):
+            with patch.dict(sys.modules, {"keyring": fake_keyring}):
+                with patch.dict(
+                    os.environ,
+                    {"ACESTEP_GLM_STORE_PASSPHRASE_FILE": "/tmp/does-not-exist-passphrase.txt"},
+                    clear=True,
+                ):
+                    resolved = passphrase_store.resolve_runtime_passphrase()
+
+        self.assertEqual(resolved, "keyring-secret")
+
 
 if __name__ == "__main__":
     unittest.main()
