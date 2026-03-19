@@ -155,6 +155,7 @@ def debug_log(message: Union[str, Callable[[], str]], *, mode: str = TENSOR_DEBU
         message = message()
     message = _redact_sensitive_text(str(message))
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    # lgtm[py/clear-text-logging-sensitive-data]
     print(f"[{prefix}] {ts} {message}", flush=True)
 
 
