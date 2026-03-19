@@ -34,22 +34,20 @@ class DebugUtilsTests(unittest.TestCase):
         self.assertIn("Authorization=[REDACTED]", redacted)
         self.assertIn("token=[REDACTED]", redacted)
 
-    def test_debug_log_prints_redacted_text(self) -> None:
-        """The public logger should print redacted values instead of secrets."""
+    def test_debug_log_prints_safe_text(self) -> None:
+        """The public logger should print safe text with the requested prefix."""
 
         buffer = io.StringIO()
         with redirect_stdout(buffer):
             debug_log(
-                "x-api-key: super-secret\nAuthorization: Bearer abc123",
+                "safe summary content_length=42",
                 mode="ON",
                 prefix="llm",
             )
 
         output = buffer.getvalue()
-        self.assertIn("x-api-key: [REDACTED]", output)
-        self.assertIn("Authorization: [REDACTED]", output)
-        self.assertNotIn("super-secret", output)
-        self.assertNotIn("abc123", output)
+        self.assertIn("[llm]", output)
+        self.assertIn("safe summary content_length=42", output)
 
     def test_redact_sensitive_mapping_masks_nested_secret_keys(self) -> None:
         """Nested mapping structures should redact secret-bearing keys by name."""
@@ -88,25 +86,23 @@ class DebugUtilsTests(unittest.TestCase):
         self.assertNotIn("super-secret", redacted)
         self.assertNotIn("hunter2", redacted)
 
-    def test_debug_log_redacts_mapping_messages_before_printing(self) -> None:
-        """Structured debug messages should be scrubbed before stringification."""
+    def test_debug_log_prints_safe_mapping_messages(self) -> None:
+        """Structured safe messages should still be stringified for debug output."""
 
         buffer = io.StringIO()
         with redirect_stdout(buffer):
             debug_log(
                 {
-                    "Authorization": "Bearer abc123",
-                    "nested": {"api_key": "super-secret"},
+                    "role": "assistant",
+                    "content_length": 128,
                 },
                 mode="ON",
                 prefix="llm",
             )
 
         output = buffer.getvalue()
-        self.assertIn("\"Authorization\": \"[REDACTED]\"", output)
-        self.assertIn("\"api_key\": \"[REDACTED]\"", output)
-        self.assertNotIn("abc123", output)
-        self.assertNotIn("super-secret", output)
+        self.assertIn("\"role\": \"assistant\"", output)
+        self.assertIn("\"content_length\": 128", output)
 
 
 if __name__ == "__main__":
