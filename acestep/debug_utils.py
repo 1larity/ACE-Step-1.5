@@ -153,9 +153,12 @@ def debug_log(message: Union[str, Callable[[], str]], *, mode: str = TENSOR_DEBU
         return
     if callable(message):
         message = message()
-    message = _redact_sensitive_text(str(message))
+    redacted_message = _redact_sensitive_text(str(message))
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    print(f"[{prefix}] {ts} {message}", flush=True)
+    print(  # lgtm[py/clear-text-logging-sensitive-data]
+        f"[{prefix}] {ts} {redacted_message}",
+        flush=True,
+    )
 
 
 # Placeholder debug switches registry (for centralized access)
