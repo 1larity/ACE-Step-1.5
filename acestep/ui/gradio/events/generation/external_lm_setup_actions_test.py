@@ -50,6 +50,7 @@ class ExternalLmSetupActionsTests(unittest.TestCase):
                 self.assertEqual(os.environ["ACESTEP_EXTERNAL_LM_PROVIDER"], "openai")
 
         self.assertIn("Main LM picker synced", status)
+        self.assertNotIn("Session API key set via env", status)
         self.assertEqual(lm_update["value"], "external:openai:gpt-4o-mini")
         self.assertIn("external:openai:gpt-4o-mini", lm_update["choices"])
         self.assertEqual(api_key_update["value"], "")

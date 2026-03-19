@@ -25,7 +25,6 @@ def store_provider_credentials(
 
     if api_key_value:
         os.environ[profile.api_key_env] = api_key_value
-        status_lines.append(f"Session API key set via env: {profile.api_key_env}")
         if passphrase_value:
             try:
                 resolve_secret_store_for_provider(profile.provider_id).save(
