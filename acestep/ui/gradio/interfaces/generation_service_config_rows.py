@@ -9,6 +9,7 @@ from acestep.gpu_config import (
     find_best_lm_model_on_disk,
     get_gpu_device_name,
 )
+from acestep.text_tasks.external_lm_mode import get_external_lm_choices
 from acestep.ui.gradio.i18n import t, available_languages_info
 
 
@@ -159,7 +160,9 @@ def build_lm_backend_controls(
     """
 
     with gr.Row():
-        all_lm_models = llm_handler.get_available_5hz_lm_models()
+        all_lm_models = list(
+            dict.fromkeys(llm_handler.get_available_5hz_lm_models() + get_external_lm_choices())
+        )
         default_lm_model = find_best_lm_model_on_disk(recommended_lm, all_lm_models)
         lm_model_path = gr.Dropdown(
             label=t("service.lm_model_path_label"),

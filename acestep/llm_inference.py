@@ -24,7 +24,9 @@ from transformers.generation.logits_process import (
 from acestep.llm_backend_compat import get_vllm_preflight_warning
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
+from acestep.debug_utils import debug_log_for
 from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
+from acestep.text_tasks.external_lm_mode import get_external_lm_choices
 
 # Minimum free VRAM (GB) required to attempt vLLM initialization.
 # vLLM's KV cache allocator adapts to available memory, so we only need a
@@ -42,6 +44,47 @@ def _warn_if_prerelease_python():
             RuntimeWarning,
             stacklevel=2,
         )
+
+
+def _summarize_status_message(status_msg: str) -> str:
+    """Return the leading line of a status string without success/error markers."""
+    first_line = status_msg.splitlines()[0].strip()
+    return first_line.lstrip("✅❌ ").strip()
+
+
+def _format_vllm_runtime_error(exc: Exception) -> Optional[str]:
+    """Return a concise, actionable vLLM failure summary for known runtime issues."""
+    error_text = f"{exc}\n\n{traceback.format_exc()}"
+
+    if "Cannot find a working triton installation" in error_text:
+        return (
+            "vLLM backend requires a working Triton installation. "
+            "Falling back to PyTorch is recommended on this system. "
+            "Use --backend pt to avoid this warning."
+        )
+
+    if "Python.h: No such file or directory" in error_text:
+        python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+        return (
+            "vLLM backend could not compile Triton CUDA helpers because Python "
+            f"development headers are missing (for Python {python_version} this is "
+            f"usually the python{python_version}-dev package). Falling back to "
+            "PyTorch is recommended until those headers are installed. "
+            "Use --backend pt to avoid this warning."
+        )
+
+    if (
+        "CalledProcessError" in error_text
+        and "triton/runtime/build.py" in error_text
+        and "gcc" in error_text
+    ):
+        return (
+            "vLLM backend failed while compiling Triton CUDA helpers. "
+            "Falling back to PyTorch is recommended on this system. "
+            "Use --backend pt to avoid this warning."
+        )
+
+    return None
 
 
 class LLMHandler:
@@ -162,7 +205,7 @@ class LLMHandler:
                     models.append(item)
 
         models.sort()
-        return models
+        return list(dict.fromkeys(models + get_external_lm_choices()))
 
     def get_gpu_memory_utilization(self, model_path: str = None, minimal_gpu: float = 8, min_ratio: float = 0.2, max_ratio: float = 0.9) -> Tuple[float, bool]:
         """
@@ -588,14 +631,8 @@ class LLMHandler:
             )
             logger.info(f"Constrained processor initialized in {time.time() - processor_start:.2f} seconds")
 
-            # Disable CUDA/HIP graph capture on ROCm (unverified on RDNA3 Windows),
-            # on Jetson (SDPA paged-cache decode calls .item() during capture),
-            # and when flash_attn is not installed (same .item() incompatibility on all CUDA hardware).
-            # When flash_attn is unavailable, nano-vllm falls back to _sdpa_decode_with_paged_cache
-            # which contains a Python loop with .item() calls.  These force CPU-GPU
-            # synchronisation that is forbidden inside torch.cuda.CUDAGraph capture,
-            # corrupting the CUDA context and causing downstream errors such as:
-            #   RuntimeError: Offset increment outside graph capture encountered unexpectedly
+            # Disable CUDA/HIP graph capture on ROCm (unverified on RDNA3 Windows)
+            # and on Jetson (SDPA paged-cache decode calls .item() during capture).
             is_rocm = hasattr(torch.version, 'hip') and torch.version.hip is not None
             is_jetson = False
             if device == "cuda" and torch.cuda.is_available():
@@ -707,6 +744,8 @@ class LLMHandler:
                     if status_msg.startswith("❌"):
                         logger.warning(f"vLLM initialization failed before PyTorch fallback: {status_msg}")
                         vllm_fallback_note = status_msg.splitlines()[0]
+                        logger.warning(f"vLLM initialization failed before PyTorch fallback: {status_msg}")
+                        vllm_failure_note = _summarize_status_message(status_msg)
                         if not self.llm_initialized:
                             if device == "mps" and self._is_mlx_available():
                                 logger.warning("vllm failed on MPS, trying MLX backend...")
@@ -719,8 +758,8 @@ class LLMHandler:
                             if not success:
                                 return status_msg, False
                             status_msg = f"✅ 5Hz LM initialized successfully (PyTorch fallback)\nModel: {full_lm_model_path}\nBackend: PyTorch"
-                            if vllm_fallback_note is not None:
-                                status_msg += f"\nNote: {vllm_fallback_note}"
+                            if vllm_failure_note:
+                                status_msg += f"\nNote: {vllm_failure_note}"
             elif backend != "mlx":
                 success, status_msg = self._load_pytorch_model(full_lm_model_path, device)
                 if not success:
@@ -817,14 +856,9 @@ class LLMHandler:
                     _dynamo_logger.setLevel(_prev_log_level)
         except Exception as e:
             self.llm_initialized = False
-            if "Cannot find a working triton installation" in str(e):
-                status_msg = "❌ vLLM backend requires a working Triton installation."
-                if sys.platform == "win32":
-                    status_msg += (
-                        " Falling back to PyTorch is recommended on Windows. "
-                        "Use --backend pt to avoid this warning."
-                    )
-                return status_msg
+            known_error = _format_vllm_runtime_error(e)
+            if known_error is not None:
+                return f"❌ {known_error}"
             return f"❌ Error initializing 5Hz LM: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
 
     def _run_vllm(
@@ -2195,7 +2229,8 @@ class LLMHandler:
             caption=caption,
             lyrics=lyrics,
         )
-        logger.debug(f"Formatted prompt for format: {formatted_prompt}")
+        if constrained_decoding_debug:
+            debug_log_for("llm", f"5Hz LM format prompt:\n{formatted_prompt}")
 
         # Build constrained decoding metadata from user_metadata
         constrained_metadata = None
@@ -2268,8 +2303,8 @@ class LLMHandler:
 
         logger.info(f"Format completed successfully. Generated {metadata} fields")
         if constrained_decoding_debug:
-            logger.debug(f"Generated metadata: {list(metadata.keys())}")
-            logger.debug(f"Output text preview: {output_text[:300]}...")
+            debug_log_for("llm", f"Generated metadata fields: {list(metadata.keys())}")
+            debug_log_for("llm", f"5Hz LM raw format response:\n{output_text}")
 
         status_msg = f"✅ Format completed successfully\nGenerated fields: {', '.join(metadata.keys())}"
         return metadata, status_msg
@@ -4093,7 +4128,7 @@ class LLMHandler:
                 self._hf_model_for_scoring = AutoModelForCausalLM.from_pretrained(
                     model_path,
                     trust_remote_code=True,
-                    torch_dtype=self.dtype
+                    dtype=self.dtype
                 )
                 load_time = time.time() - start_time
                 logger.info(f"HuggingFace model loaded in {load_time:.2f}s")
@@ -4128,7 +4163,7 @@ class LLMHandler:
                 self._hf_model_for_scoring = AutoModelForCausalLM.from_pretrained(
                     model_path,
                     trust_remote_code=True,
-                    torch_dtype=self.dtype
+                    dtype=self.dtype
                 )
                 load_time = time.time() - start_time
                 logger.info(f"HuggingFace model loaded in {load_time:.2f}s")

@@ -6,9 +6,22 @@ checkpoints, and handling GPU tier changes.
 
 import os
 import sys
+from typing import Any
 import gradio as gr
 from loguru import logger
 
+from acestep.text_tasks.external_lm_mode import (
+    activate_external_lm_mode,
+    deactivate_external_lm_mode,
+    get_external_lm_choices,
+    is_external_lm_active,
+    is_lm_ready,
+    is_external_lm_model,
+)
+from acestep.text_tasks.external_lm_tasks import (
+    ExternalAIClientError,
+    warm_up_external_provider,
+)
 from acestep.ui.gradio.i18n import t
 from acestep.gpu_config import (
     get_global_gpu_config, is_lm_model_size_allowed, find_best_lm_model_on_disk,
@@ -23,6 +36,7 @@ def _select_quantization_value(
     device: str,
 ) -> str | None:
     """Return the DiT quantization mode selected for the current UI state."""
+
     quant_value = "int8_weight_only" if quantization_enabled else None
     if not quantization_enabled or device not in {"auto", "cuda"}:
         return quant_value
@@ -55,7 +69,7 @@ def init_service_wrapper(
     dit_handler, llm_handler, checkpoint, config_path, device,
     init_llm, lm_model_path, backend, use_flash_attention,
     offload_to_cpu, offload_dit_to_cpu, compile_model, quantization,
-    mlx_dit=True, current_mode=None, current_batch_size=None,
+    mlx_dit=True, current_mode=None, current_batch_size=None, progress=None,
 ):
     """Wrapper for service initialization.
 
@@ -84,10 +98,13 @@ def init_service_wrapper(
             quantization = False
             quant_value = None
 
+    external_lm_selected = is_external_lm_model(lm_model_path)
+    should_initialize_local_lm = bool(init_llm and not external_lm_selected)
+
     # Compute lm_device only when initializing the LLM to avoid overwriting a
     # previously-resolved device (e.g. "cuda") with the raw UI value ("auto").
     # "auto" is resolved to the concrete device inside llm_handler.initialize().
-    if init_llm:
+    if should_initialize_local_lm:
         if not gpu_config.available_lm_models:
             logger.warning(
                 f"⚠️ GPU tier {gpu_config.tier} ({gpu_config.gpu_memory_gb:.1f}GB) does not support LM on GPU. "
@@ -97,7 +114,7 @@ def init_service_wrapper(
         else:
             lm_device = device
 
-    if init_llm and lm_model_path and gpu_config.available_lm_models:
+    if should_initialize_local_lm and lm_model_path and gpu_config.available_lm_models:
         if not is_lm_model_size_allowed(lm_model_path, gpu_config.available_lm_models):
             logger.warning(
                 f"⚠️ LM model {lm_model_path} is not in the recommended list for tier {gpu_config.tier} "
@@ -105,7 +122,7 @@ def init_service_wrapper(
                 f"this may cause high VRAM usage or OOM."
             )
 
-    if init_llm and gpu_config.lm_backend_restriction == "pt_mlx_only" and backend == "vllm":
+    if should_initialize_local_lm and gpu_config.lm_backend_restriction == "pt_mlx_only" and backend == "vllm":
         backend = gpu_config.recommended_backend
         logger.warning(
             f"⚠️ vllm backend not supported for tier {gpu_config.tier} "
@@ -128,7 +145,13 @@ def init_service_wrapper(
         quantization=quant_value, use_mlx_dit=mlx_dit,
     )
 
-    if init_llm:
+    external_selection = None
+    if external_lm_selected:
+        external_selection = activate_external_lm_mode(lm_model_path)
+    else:
+        deactivate_external_lm_mode()
+
+    if should_initialize_local_lm:
         checkpoint_dir = os.path.join(project_root, "checkpoints")
 
         lm_status, lm_success = llm_handler.initialize(
@@ -144,6 +167,25 @@ def init_service_wrapper(
             status += f"\n{lm_status}"
         else:
             status += f"\n{lm_status}"
+
+    if external_selection is not None:
+        status += (
+            "\nExternal LM provider active: "
+            f"{external_selection.provider}:{external_selection.model}"
+        )
+        if external_selection.provider == "ollama":
+            _report_progress(
+                progress,
+                0.85,
+                f"Warming Ollama model {external_selection.model}...",
+            )
+            try:
+                warmup_status = warm_up_external_provider()
+                if warmup_status:
+                    status += f"\n{warmup_status}"
+            except ExternalAIClientError as exc:
+                logger.warning(f"Ollama warm-up skipped: {exc}")
+                status += f"\nOllama warm-up skipped: {exc}"
 
     is_model_initialized = dit_handler.model is not None
     accordion_state = gr.Accordion(open=not is_model_initialized)
@@ -200,7 +242,10 @@ def init_service_wrapper(
     else:
         status += ", LM not available for this GPU tier"
 
-    think_interactive = lm_actually_initialized
+    think_interactive = is_lm_ready(
+        llm_handler=llm_handler,
+        lm_model_path=lm_model_path,
+    )
 
     return (
         status,
@@ -211,6 +256,17 @@ def init_service_wrapper(
         batch_update,
         gr.update(interactive=think_interactive, value=think_interactive),
     )
+
+
+def _report_progress(progress: Any | None, value: float, desc: str) -> None:
+    """Send a best-effort Gradio progress update when available."""
+
+    if progress is None:
+        return
+    try:
+        progress(value, desc=desc)
+    except Exception:
+        return
 
 
 def on_tier_change(selected_tier, llm_handler=None):
@@ -241,6 +297,7 @@ def on_tier_change(selected_tier, llm_handler=None):
         recommended_backend = available_backends[0]
 
     all_disk_models = llm_handler.get_available_5hz_lm_models() if llm_handler else []
+    all_disk_models = list(dict.fromkeys(all_disk_models + get_external_lm_choices()))
     recommended_lm = new_config.recommended_lm_model
     default_lm_model = find_best_lm_model_on_disk(recommended_lm, all_disk_models)
 

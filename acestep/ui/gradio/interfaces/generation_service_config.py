@@ -8,6 +8,7 @@ from acestep.ui.gradio.help_content import create_help_button
 from acestep.ui.gradio.i18n import t
 
 from .generation_defaults import compute_init_defaults
+from .generation_external_lm_config import create_external_lm_config_content
 from .generation_service_config_rows import (
     build_checkpoint_controls,
     build_gpu_info_and_tier,
@@ -87,6 +88,7 @@ def create_service_config_content(
             service_pre_initialized=service_pre_initialized,
             params=params,
         )
+        external_lm_controls = create_external_lm_config_content(init_params=init_params)
 
     result: dict[str, Any] = {"service_config_accordion": service_config_accordion}
     result.update(language_controls)
@@ -101,6 +103,7 @@ def create_service_config_content(
     result.update(lm_backend_controls)
     result.update(toggle_controls)
     result.update(init_controls)
+    result.update(external_lm_controls)
     result["gpu_config"] = defaults["gpu_config"]
     return result
 

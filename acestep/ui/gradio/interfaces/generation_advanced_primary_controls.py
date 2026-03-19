@@ -4,6 +4,8 @@ from typing import Any
 
 import gradio as gr
 
+from acestep.constants import DEBUG_LLM
+from acestep.debug_utils import is_debug_enabled
 from acestep.ui.gradio.i18n import t
 
 
@@ -139,10 +141,12 @@ def build_lm_controls(service_mode: bool) -> dict[str, Any]:
             )
             constrained_decoding_debug = gr.Checkbox(
                 label=t("generation.constrained_debug_label"),
-                value=False,
+                value=is_debug_enabled(DEBUG_LLM),
                 info=t("generation.constrained_debug_info"),
                 scale=1,
                 interactive=not service_mode,
+                elem_classes=["has-info-container"],
+                min_width=220,
             )
         with gr.Row():
             allow_lm_batch = gr.Checkbox(

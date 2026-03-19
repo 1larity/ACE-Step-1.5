@@ -45,6 +45,15 @@ from .llm_actions import (
     transcribe_audio_codes,
     analyze_src_audio,
 )
+from .external_lm_setup_actions import (
+    apply_external_lm_base_url_preset,
+    build_external_lm_inactive_updates,
+    build_external_lm_dropdown_sync_updates,
+    check_external_lm_runtime_from_ui,
+    fetch_external_lm_models_from_ui,
+    load_external_lm_provider_defaults,
+    save_external_lm_settings_from_ui,
+)
 from .ui_helpers import (
     update_negative_prompt_visibility,
     on_auto_checkbox_change,

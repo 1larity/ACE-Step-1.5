@@ -14,6 +14,7 @@ from typing import Optional
 from acestep.ui.gradio.i18n import t
 from acestep.gpu_config import get_global_gpu_config
 from acestep.inference import understand_music
+from acestep.text_tasks.external_lm_mode import is_lm_ready
 from .validation import clamp_duration_to_gpu_limit
 
 
@@ -66,7 +67,7 @@ def load_metadata(file_obj, llm_handler=None):
 
         batch_size = metadata.get('batch_size', 2)
         gpu_config = get_global_gpu_config()
-        lm_initialized = llm_handler.llm_initialized if llm_handler else False
+        lm_initialized = is_lm_ready(llm_handler=llm_handler)
         max_batch_size = gpu_config.max_batch_size_with_lm if lm_initialized else gpu_config.max_batch_size_without_lm
         batch_size = min(int(batch_size), max_batch_size)
         inference_steps = metadata.get('inference_steps', 8)
@@ -88,7 +89,7 @@ def load_metadata(file_obj, llm_handler=None):
         audio_cover_strength = metadata.get('audio_cover_strength', 1.0)
         cover_noise_strength = metadata.get('cover_noise_strength', 0.0)
         think = metadata.get('thinking', True)
-        lm_ok = llm_handler.llm_initialized if llm_handler else False
+        lm_ok = is_lm_ready(llm_handler=llm_handler)
         if think and not lm_ok:
             think = False
             gr.Warning(t("messages.think_requires_lm"))
@@ -176,7 +177,7 @@ def load_random_example(task_type: str, llm_handler=None):
             think_value = data.get('think', True)
             if not isinstance(think_value, bool):
                 think_value = True
-            lm_ok = llm_handler.llm_initialized if llm_handler else False
+            lm_ok = is_lm_ready(llm_handler=llm_handler)
             if think_value and not lm_ok:
                 think_value = False
                 gr.Warning(t("messages.think_requires_lm"))

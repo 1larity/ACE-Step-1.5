@@ -118,7 +118,13 @@ DEFAULT_DIT_INSTRUCTION = "Fill the audio semantic mask based on the given condi
 DEFAULT_LM_INSTRUCTION = "Generate audio semantic tokens based on the given conditions:"
 DEFAULT_LM_UNDERSTAND_INSTRUCTION = "Understand the given musical conditions and describe the audio semantics accordingly:"
 DEFAULT_LM_INSPIRED_INSTRUCTION = "Expand the user's input into a more detailed and specific musical description:"
-DEFAULT_LM_REWRITE_INSTRUCTION = "Format the user's input into a more detailed and specific musical description:"
+# Previous prompt:
+# DEFAULT_LM_REWRITE_INSTRUCTION = "Format the user's input into a more detailed and specific musical description:"
+DEFAULT_LM_REWRITE_INSTRUCTION = (
+    "Rewrite the user's input into a fuller standard song caption as a linear narrative of the arrangement. "
+    "Describe who is singing, the singer's delivery or mood, the core instrumentation, how the song progresses "
+    "from intro to verse to chorus or drop to outro, and how the mix or energy evolves over time."
+)
 
 # Instruction templates for each task type
 # Note: Some instructions use placeholders like {TRACK_NAME} or {TRACK_CLASSES}

@@ -49,6 +49,9 @@ The Gradio interface is organized as follows:
 
 ## Service Configuration
 
+ACE-Step also supports external-provider configuration. For provider setup, saved-setting
+behavior, and known caveats, see [External LM Provider Setup](EXTERNAL_LM_SETUP.md).
+
 ### Model Selection
 
 | Setting | Description |

@@ -3,6 +3,11 @@
 import gradio as gr
 
 from acestep.inference import create_sample
+from acestep.text_tasks.external_lm_mode import is_external_lm_active
+from acestep.text_tasks.external_lm_tasks import (
+    GlmClientError,
+    create_sample_with_external_provider,
+)
 from acestep.ui.gradio.i18n import t
 
 from .llm_action_params import convert_lm_params
@@ -34,7 +39,8 @@ def handle_create_sample(
     Returns:
         Tuple of 15 UI updates for wired Gradio outputs.
     """
-    if not llm_handler.llm_initialized:
+    external_active = is_external_lm_active()
+    if not llm_handler.llm_initialized and not external_active:
         gr.Warning(t("messages.lm_not_initialized"))
         return (
             gr.update(),
@@ -54,18 +60,46 @@ def handle_create_sample(
             gr.update(),
         )
 
-    top_k_value, top_p_value = convert_lm_params(lm_top_k, lm_top_p)
-    result = create_sample(
-        llm_handler=llm_handler,
-        query=query,
-        instrumental=instrumental,
-        vocal_language=vocal_language,
-        temperature=lm_temperature,
-        top_k=top_k_value,
-        top_p=top_p_value,
-        use_constrained_decoding=True,
-        constrained_decoding_debug=constrained_decoding_debug,
-    )
+    if external_active:
+        try:
+            result = create_sample_with_external_provider(
+                query=query,
+                instrumental=instrumental,
+                vocal_language=vocal_language,
+            )
+        except GlmClientError as exc:
+            status_message = str(exc)
+            gr.Warning(status_message)
+            return (
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(interactive=False),
+                False,
+                gr.update(),
+                gr.update(),
+                status_message,
+                gr.update(),
+            )
+    else:
+        top_k_value, top_p_value = convert_lm_params(lm_top_k, lm_top_p)
+        result = create_sample(
+            llm_handler=llm_handler,
+            query=query,
+            instrumental=instrumental,
+            vocal_language=vocal_language,
+            temperature=lm_temperature,
+            top_k=top_k_value,
+            top_p=top_p_value,
+            use_constrained_decoding=True,
+            constrained_decoding_debug=constrained_decoding_debug,
+        )
 
     if not result.success:
         gr.Warning(result.status_message or t("messages.sample_creation_failed"))

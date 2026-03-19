@@ -172,6 +172,7 @@ LANGUAGE=en
 | Method | Description | Documentation |
 |--------|-------------|---------------|
 | 🖥️ **Gradio Web UI** | Interactive web interface for music generation | [Guide](./docs/en/GRADIO_GUIDE.md) |
+| 🧠 **External LM Setup** | Configure Z.ai, OpenAI, Claude, and Ollama providers | [Guide](./docs/en/EXTERNAL_LM_SETUP.md) |
 | 🎚️ **Studio UI** | Optional HTML frontend (DAW-like) | [Guide](./docs/en/studio.md) |
 | 🐍 **Python API** | Programmatic access for integration | [Guide](./docs/en/INFERENCE.md) |
 | 🌐 **REST API** | HTTP-based async API for services | [Guide](./docs/en/API.md) |

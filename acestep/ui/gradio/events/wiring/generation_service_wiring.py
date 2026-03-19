@@ -8,6 +8,11 @@ from typing import Any
 
 import gradio as gr
 
+from acestep.text_tasks.external_lm_mode import (
+    activate_external_lm_mode,
+    deactivate_external_lm_mode,
+    is_external_lm_model,
+)
 from .. import generation_handlers as gen_h
 from ...i18n import get_i18n
 from .context import (
@@ -48,6 +53,99 @@ def register_generation_service_handlers(
         outputs=[generation_section["language_dropdown"]],
     )
 
+    generation_section["lm_model_path"].change(
+        fn=_sync_external_lm_mode_from_dropdown,
+        inputs=[generation_section["lm_model_path"]],
+        outputs=[
+            generation_section["external_lm_provider_dropdown"],
+            generation_section["external_lm_protocol_dropdown"],
+            generation_section["external_lm_model_input"],
+            generation_section["external_lm_base_url_preset_dropdown"],
+            generation_section["external_lm_base_url_input"],
+            generation_section["external_lm_status"],
+            generation_section["init_llm_checkbox"],
+        ],
+    )
+
+    generation_section["external_lm_provider_dropdown"].change(
+        fn=gen_h.load_external_lm_provider_defaults,
+        inputs=[generation_section["external_lm_provider_dropdown"]],
+        outputs=[
+            generation_section["external_lm_protocol_dropdown"],
+            generation_section["external_lm_model_input"],
+            generation_section["external_lm_base_url_preset_dropdown"],
+            generation_section["external_lm_base_url_input"],
+            generation_section["external_lm_status"],
+        ],
+    )
+
+    generation_section["external_lm_defaults_btn"].click(
+        fn=gen_h.load_external_lm_provider_defaults,
+        inputs=[generation_section["external_lm_provider_dropdown"]],
+        outputs=[
+            generation_section["external_lm_protocol_dropdown"],
+            generation_section["external_lm_model_input"],
+            generation_section["external_lm_base_url_preset_dropdown"],
+            generation_section["external_lm_base_url_input"],
+            generation_section["external_lm_status"],
+        ],
+    )
+
+    generation_section["external_lm_base_url_preset_dropdown"].change(
+        fn=gen_h.apply_external_lm_base_url_preset,
+        inputs=[
+            generation_section["external_lm_provider_dropdown"],
+            generation_section["external_lm_base_url_preset_dropdown"],
+            generation_section["external_lm_base_url_input"],
+        ],
+        outputs=[generation_section["external_lm_base_url_input"]],
+    )
+
+    generation_section["external_lm_fetch_models_btn"].click(
+        fn=gen_h.fetch_external_lm_models_from_ui,
+        inputs=[
+            generation_section["external_lm_provider_dropdown"],
+            generation_section["external_lm_protocol_dropdown"],
+            generation_section["external_lm_base_url_input"],
+            generation_section["external_lm_api_key_input"],
+            generation_section["external_lm_model_input"],
+        ],
+        outputs=[
+            generation_section["external_lm_model_input"],
+            generation_section["external_lm_status"],
+        ],
+    )
+
+    generation_section["external_lm_save_btn"].click(
+        fn=lambda *args: gen_h.save_external_lm_settings_from_ui(*args, llm_handler=llm_handler),
+        inputs=[
+            generation_section["external_lm_provider_dropdown"],
+            generation_section["external_lm_protocol_dropdown"],
+            generation_section["external_lm_model_input"],
+            generation_section["external_lm_base_url_input"],
+            generation_section["external_lm_api_key_input"],
+            generation_section["external_lm_store_passphrase_input"],
+            generation_section["external_lm_save_passphrase_checkbox"],
+        ],
+        outputs=[
+            generation_section["external_lm_status"],
+            generation_section["external_lm_api_key_input"],
+            generation_section["external_lm_store_passphrase_input"],
+            generation_section["lm_model_path"],
+        ],
+    )
+
+    generation_section["external_lm_doctor_btn"].click(
+        fn=gen_h.check_external_lm_runtime_from_ui,
+        inputs=[
+            generation_section["external_lm_provider_dropdown"],
+            generation_section["external_lm_protocol_dropdown"],
+            generation_section["external_lm_model_input"],
+            generation_section["external_lm_base_url_input"],
+        ],
+        outputs=[generation_section["external_lm_status"]],
+    )
+
     generation_section["config_path"].change(
         fn=gen_h.update_model_type_settings,
         inputs=[generation_section["config_path"], generation_section["generation_mode"]],
@@ -82,8 +180,19 @@ def register_generation_service_handlers(
         ],
     )
 
+    def _run_service_init(*args, progress=gr.Progress(track_tqdm=False)):
+        """Run service init with best-effort progress reporting."""
+
+        progress(0.05, desc="Initializing ACE-Step service...")
+        return gen_h.init_service_wrapper(
+            dit_handler,
+            llm_handler,
+            *args,
+            progress=progress,
+        )
+
     generation_section["init_btn"].click(
-        fn=lambda *args: gen_h.init_service_wrapper(dit_handler, llm_handler, *args),
+        fn=_run_service_init,
         inputs=[
             generation_section["checkpoint_dropdown"],
             generation_section["config_path"],
@@ -210,3 +319,18 @@ def _apply_runtime_language(language: str) -> dict[str, Any]:
 
     get_i18n(language)
     return gr.update(value=language)
+
+
+def _sync_external_lm_mode_from_dropdown(
+    lm_model_path: str,
+) -> tuple[dict, dict, dict, dict, dict, str, dict]:
+    """Keep external LM mode aligned with the main LM dropdown value."""
+
+    if is_external_lm_model(lm_model_path):
+        activate_external_lm_mode(lm_model_path)
+        return (
+            *gen_h.build_external_lm_dropdown_sync_updates(lm_model_path),
+            gr.update(value=False),
+        )
+    deactivate_external_lm_mode()
+    return (*gen_h.build_external_lm_inactive_updates(), gr.update(value=True))
