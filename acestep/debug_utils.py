@@ -3,6 +3,7 @@ Debug helpers (global).
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Optional, Callable, Union
 
@@ -107,8 +108,35 @@ def configure_cpu_threads_if_needed() -> bool:
 configure_cpu_threads_if_needed()
 
 
+_SENSITIVE_INLINE_PATTERNS = (
+    (
+        re.compile(
+            r"(?i)\b(passphrase|password|api[_-]?key|secret|token|authorization|x-api-key)\b"
+            r"(\s*[:=]\s*)"
+            r"(Bearer\s+[A-Za-z0-9._~+/=-]+|\"[^\"]*\"|'[^']*'|[^\s,]+)"
+        ),
+        r"\g<1>\g<2>[REDACTED]",
+    ),
+    (
+        re.compile(
+            r"(?i)\b(Bearer)\s+[A-Za-z0-9._~+/=-]+"
+        ),
+        r"\g<1> [REDACTED]",
+    ),
+)
+
+
 def _normalize_mode(mode: str) -> str:
     return (mode or "").strip().upper()
+
+
+def _redact_sensitive_text(text: str) -> str:
+    """Redact common secret-like values from debug log messages."""
+
+    redacted = text
+    for pattern, replacement in _SENSITIVE_INLINE_PATTERNS:
+        redacted = pattern.sub(replacement, redacted)
+    return redacted
 
 
 def is_debug_enabled(mode: str) -> bool:
@@ -125,6 +153,7 @@ def debug_log(message: Union[str, Callable[[], str]], *, mode: str = TENSOR_DEBU
         return
     if callable(message):
         message = message()
+    message = _redact_sensitive_text(str(message))
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     print(f"[{prefix}] {ts} {message}", flush=True)
 
