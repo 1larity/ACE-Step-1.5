@@ -78,6 +78,7 @@ def check_external_lm_runtime_from_ui(
     protocol: str | None = None,
     model: str | None = None,
     base_url: str | None = None,
+    api_key: str | None = None,
 ) -> str:
     """Report whether the selected external provider configuration is usable."""
 
@@ -94,7 +95,10 @@ def check_external_lm_runtime_from_ui(
         f"Configured base URL: {configured_base_url}",
         f"External LM mode enabled: {'yes' if os.getenv('ACESTEP_EXTERNAL_LM_ENABLED', '').strip().lower() in {'1', 'true', 'yes'} else 'no'}",
     ]
-    if profile.api_key_required:
+    typed_api_key = (api_key or "").strip()
+    if profile.api_key_required and typed_api_key:
+        status_lines.append("Credentials: provided in current form input")
+    elif profile.api_key_required:
         try:
             resolve_external_api_key_for_runtime(provider_id)
             status_lines.append("Credentials: available")
@@ -103,10 +107,14 @@ def check_external_lm_runtime_from_ui(
     else:
         status_lines.append("Credentials: not required by default")
 
-    store = resolve_secret_store_for_provider(provider_id)
-    status_lines.append(
-        f"Encrypted key path: {store.secret_path} ({'present' if Path(store.secret_path).exists() else 'missing'})"
-    )
+    try:
+        store = resolve_secret_store_for_provider(provider_id)
+    except SecretStoreError as exc:
+        status_lines.append(f"Encrypted key path: unavailable ({exc})")
+    else:
+        status_lines.append(
+            f"Encrypted key path: {store.secret_path} ({'present' if Path(store.secret_path).exists() else 'missing'})"
+        )
     return as_markdown_status("\n".join(status_lines))
 
 

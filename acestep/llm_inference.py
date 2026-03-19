@@ -26,7 +26,6 @@ from acestep.constrained_logits_processor import MetadataConstrainedLogitsProces
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
 from acestep.debug_utils import debug_log_for
 from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
-from acestep.text_tasks.external_lm_mode import get_external_lm_choices
 
 # Minimum free VRAM (GB) required to attempt vLLM initialization.
 # vLLM's KV cache allocator adapts to available memory, so we only need a
@@ -205,7 +204,7 @@ class LLMHandler:
                     models.append(item)
 
         models.sort()
-        return list(dict.fromkeys(models + get_external_lm_choices()))
+        return models
 
     def get_gpu_memory_utilization(self, model_path: str = None, minimal_gpu: float = 8, min_ratio: float = 0.2, max_ratio: float = 0.9) -> Tuple[float, bool]:
         """

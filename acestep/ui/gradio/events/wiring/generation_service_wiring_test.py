@@ -97,6 +97,44 @@ class GenerationServiceWiringTests(unittest.TestCase):
         }
         self.assertIn("_apply_runtime_language", function_names)
 
+    def test_external_lm_doctor_click_includes_api_key_input(self):
+        """Runtime doctor should validate the API key currently typed in the form."""
+
+        register_fn = self._load_register_generation_service_handlers()
+
+        found_api_key_input = False
+        for node in ast.walk(register_fn):
+            if not isinstance(node, ast.Call):
+                continue
+            if not isinstance(node.func, ast.Attribute) or node.func.attr != "click":
+                continue
+            if not isinstance(node.func.value, ast.Subscript):
+                continue
+            target = node.func.value
+            if not (
+                isinstance(target.value, ast.Name)
+                and target.value.id == "generation_section"
+                and isinstance(target.slice, ast.Constant)
+                and target.slice.value == "external_lm_doctor_btn"
+            ):
+                continue
+            for keyword in node.keywords:
+                if keyword.arg != "inputs" or not isinstance(keyword.value, ast.List):
+                    continue
+                for element in keyword.value.elts:
+                    if not isinstance(element, ast.Subscript):
+                        continue
+                    if (
+                        isinstance(element.value, ast.Name)
+                        and element.value.id == "generation_section"
+                        and isinstance(element.slice, ast.Constant)
+                        and element.slice.value == "external_lm_api_key_input"
+                    ):
+                        found_api_key_input = True
+                        break
+
+        self.assertTrue(found_api_key_input)
+
 
 if __name__ == "__main__":
     unittest.main()

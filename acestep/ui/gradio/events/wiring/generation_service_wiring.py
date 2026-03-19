@@ -142,6 +142,7 @@ def register_generation_service_handlers(
             generation_section["external_lm_protocol_dropdown"],
             generation_section["external_lm_model_input"],
             generation_section["external_lm_base_url_input"],
+            generation_section["external_lm_api_key_input"],
         ],
         outputs=[generation_section["external_lm_status"]],
     )

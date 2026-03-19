@@ -6,10 +6,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from acestep.text_tasks.secure_secret_store import SecretStoreError
 from acestep.ui.gradio.events.generation.external_lm_setup_actions import (
     apply_external_lm_base_url_preset,
     build_external_lm_dropdown_sync_updates,
     build_external_lm_inactive_updates,
+    check_external_lm_runtime_from_ui,
     fetch_external_lm_models_from_ui,
     load_external_lm_provider_defaults,
     save_external_lm_settings_from_ui,
@@ -221,6 +223,42 @@ class ExternalLmSetupActionsTests(unittest.TestCase):
         )
 
         self.assertEqual(update["value"], "https://example.invalid/custom")
+
+    @patch(
+        "acestep.ui.gradio.events.generation.external_lm_setup_defaults.resolve_external_api_key_for_runtime"
+    )
+    def test_runtime_check_prefers_current_form_api_key(self, mock_resolve_runtime_key) -> None:
+        """Runtime checks should accept the unsaved API key currently typed in the form."""
+
+        status = check_external_lm_runtime_from_ui(
+            provider="openai",
+            protocol="openai_chat",
+            model="gpt-4o-mini",
+            base_url="https://api.openai.com/v1/chat/completions",
+            api_key="typed-key",
+        )
+
+        mock_resolve_runtime_key.assert_not_called()
+        self.assertIn("Credentials: provided in current form input", status)
+
+    def test_runtime_check_reports_secret_store_unavailability_without_crashing(
+        self,
+    ) -> None:
+        """Runtime checks should degrade gracefully when the encrypted store is unavailable."""
+
+        with patch(
+            "acestep.ui.gradio.events.generation.external_lm_setup_defaults.resolve_secret_store_for_provider",
+            side_effect=SecretStoreError("OpenSSL is required for encrypted secret storage."),
+        ):
+            status = check_external_lm_runtime_from_ui(
+                provider="openai",
+                protocol="openai_chat",
+                model="gpt-4o-mini",
+                base_url="https://api.openai.com/v1/chat/completions",
+                api_key="typed-key",
+            )
+
+        self.assertIn("Encrypted key path: unavailable", status)
 
     @patch(
         "acestep.ui.gradio.events.generation.external_lm_setup_persistence.invalidate_cached_external_models"
