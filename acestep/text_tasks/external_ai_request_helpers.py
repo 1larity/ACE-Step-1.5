@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
 from urllib import parse
 
@@ -43,8 +44,18 @@ def build_intent_specific_guidance(intent: str) -> str:
     if not normalized_signal:
         return ""
 
-    no_vocals_markers = ("no vocals", "instrumental", "wordless", "no lead vocals")
-    if any(marker in normalized_signal for marker in no_vocals_markers):
+    if re.search(r"(?im)^\s*instrumental\s*:\s*(?:true|1|yes)\s*$", intent or ""):
+        return (
+            "Honor the no-vocals or instrumental request exactly. "
+            "Do not introduce lead vocals, backing vocals, choir parts, choir harmonies, choral textures, "
+            "vocal harmonies, or vocal language. "
+            "Set instrumental to true."
+        )
+
+    if any(
+        marker in normalized_signal
+        for marker in ("no vocals", "wordless", "no lead vocals", "instrumental only")
+    ) or normalized_signal in {"instrumental", "fully instrumental", "purely instrumental"}:
         return (
             "Honor the no-vocals or instrumental request exactly. "
             "Do not introduce lead vocals, backing vocals, choir parts, choir harmonies, choral textures, "

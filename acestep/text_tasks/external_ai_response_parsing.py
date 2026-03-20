@@ -38,8 +38,8 @@ def parse_plan_from_content(content: str, task_focus: str = "all") -> ExternalAI
     instrumental = to_bool(obj.get("instrumental"))
     bpm = to_int(obj.get("bpm"))
     duration = to_float(obj.get("duration"))
-    key_scale = str(obj.get("key_scale") or "").strip()
-    time_signature = str(obj.get("time_signature") or "").strip()
+    key_scale = str(obj.get("key_scale") or obj.get("keyscale") or "").strip()
+    time_signature = str(obj.get("time_signature") or obj.get("timesignature") or "").strip()
     vocal_language = str(obj.get("vocal_language") or "").strip()
 
     if instrumental and not lyrics:

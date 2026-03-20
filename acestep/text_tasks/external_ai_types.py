@@ -26,4 +26,7 @@ class ExternalAIPlan:
     def to_dict(self) -> dict[str, Any]:
         """Return a serializable dictionary view of the plan."""
 
-        return asdict(self)
+        payload = asdict(self)
+        payload["keyscale"] = payload["key_scale"]
+        payload["timesignature"] = payload["time_signature"]
+        return payload

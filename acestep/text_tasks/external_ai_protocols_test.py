@@ -36,6 +36,17 @@ class ExternalAIProtocolsTests(unittest.TestCase):
         with self.assertRaises(ExternalAIClientError):
             require_message_pair([{"role": "system", "content": "s"}])
 
+    def test_require_message_pair_rejects_swapped_roles(self) -> None:
+        """Protocol builders should reject malformed role ordering."""
+
+        with self.assertRaises(ExternalAIClientError):
+            require_message_pair(
+                [
+                    {"role": "user", "content": "u"},
+                    {"role": "assistant", "content": "a"},
+                ]
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
