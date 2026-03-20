@@ -99,8 +99,8 @@ def repair_json_candidate(candidate: str) -> str:
     """Apply small non-destructive repairs for common JSON defects."""
 
     repaired = candidate.strip()
-    repaired = repaired.replace("â€œ", '"').replace("â€", '"')
-    repaired = repaired.replace("â€˜", "'").replace("â€™", "'")
+    repaired = repaired.replace("\u00e2\u20ac\u0153", '"').replace("\u00e2\u20ac\x9d", '"')
+    repaired = repaired.replace("\u00e2\u20ac\u02dc", "'").replace("\u00e2\u20ac\u2122", "'")
     repaired = re.sub(r",(\s*[}\]])", r"\1", repaired)
     return repaired
 
@@ -144,11 +144,11 @@ def extract_labelled_plan_fields(content: str) -> dict[str, Any]:
         "instrumental": "instrumental",
     }
     pattern = re.compile(
-        r"^\s*(caption|lyrics|bpm|duration|key(?:[_ ]scale|scale)|"
-        r"time(?:[_ ]signature|signature)|vocal(?:[_ ]language|language)|"
+        r"^\s*(caption|lyrics|bpm|duration|key(?:[-_ ]scale|scale)|"
+        r"time(?:[-_ ]signature|signature)|vocal(?:[-_ ]language|language)|"
         r"instrumental)\s*:\s*(.+?)(?=^\s*(?:caption|lyrics|bpm|duration|"
-        r"key(?:[_ ]scale|scale)|time(?:[_ ]signature|signature)|"
-        r"vocal(?:[_ ]language|language)|instrumental)\s*:|\Z)",
+        r"key(?:[-_ ]scale|scale)|time(?:[-_ ]signature|signature)|"
+        r"vocal(?:[-_ ]language|language)|instrumental)\s*:|\Z)",
         flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
     )
     parsed: dict[str, Any] = {}
