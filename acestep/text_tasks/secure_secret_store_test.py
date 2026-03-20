@@ -17,6 +17,15 @@ from acestep.text_tasks.secure_secret_store import EncryptedSecretStore, SecretS
 class SecureSecretStoreTests(unittest.TestCase):
     """Verify encrypted secret storage save/load flows."""
 
+    @staticmethod
+    def _fake_keyring_module() -> types.SimpleNamespace:
+        """Return a fake keyring module with a KeyringError base class."""
+
+        class _FakeKeyringError(Exception):
+            """Fake stable keyring base exception."""
+
+        return types.SimpleNamespace(errors=types.SimpleNamespace(KeyringError=_FakeKeyringError))
+
     def test_save_and_load_round_trip_with_mocked_openssl(self) -> None:
         """Save followed by load should round-trip the secret content."""
 
@@ -56,7 +65,7 @@ class SecureSecretStoreTests(unittest.TestCase):
     def test_save_and_load_round_trip_with_native_keyring(self) -> None:
         """Windows/macOS should prefer the native keyring backend when available."""
 
-        fake_keyring = types.SimpleNamespace()
+        fake_keyring = self._fake_keyring_module()
         captured: dict[tuple[str, str], str] = {}
 
         def set_password(service: str, username: str, secret: str) -> None:
@@ -136,6 +145,51 @@ class SecureSecretStoreTests(unittest.TestCase):
                     )
 
         self.assertIn("timed out", str(exc.exception))
+
+    def test_save_to_keyring_wraps_keyring_error(self) -> None:
+        """Native keyring write failures should surface as SecretStoreError."""
+
+        fake_keyring = self._fake_keyring_module()
+        keyring_error = fake_keyring.errors.KeyringError
+
+        def set_password(*_args) -> None:
+            raise keyring_error("locked")
+
+        fake_keyring.set_password = set_password
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            secret_path = Path(tmpdir) / "openai_api_key.enc"
+            with patch.object(secure_secret_store.sys, "platform", "win32"):
+                with patch.dict(sys.modules, {"keyring": fake_keyring}):
+                    with patch("shutil.which", return_value=None):
+                        store = EncryptedSecretStore(secret_path=secret_path)
+                        with self.assertRaises(SecretStoreError) as exc:
+                            store.save(secret="test-key", passphrase="")
+
+        self.assertIn("Failed storing secret", str(exc.exception))
+
+    def test_load_from_keyring_wraps_keyring_error(self) -> None:
+        """Native keyring read failures should surface as SecretStoreError."""
+
+        fake_keyring = self._fake_keyring_module()
+        keyring_error = fake_keyring.errors.KeyringError
+
+        def get_password(*_args) -> str | None:
+            raise keyring_error("locked")
+
+        fake_keyring.set_password = lambda *_args: None
+        fake_keyring.get_password = get_password
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            secret_path = Path(tmpdir) / "openai_api_key.enc"
+            with patch.object(secure_secret_store.sys, "platform", "win32"):
+                with patch.dict(sys.modules, {"keyring": fake_keyring}):
+                    with patch("shutil.which", return_value=None):
+                        store = EncryptedSecretStore(secret_path=secret_path)
+                        with self.assertRaises(SecretStoreError) as exc:
+                            store.load(passphrase="")
+
+        self.assertIn("Failed reading secret", str(exc.exception))
 
 
 if __name__ == "__main__":

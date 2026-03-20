@@ -170,9 +170,10 @@ class EncryptedSecretStore:
         keyring = self._load_keyring_module()
         if keyring is None:
             raise SecretStoreError("Python keyring backend unavailable.")
+        keyring_error = self._keyring_error_type(keyring)
         try:
             keyring.set_password("acestep.external_lm.secret_store", self._keyring_username(), secret)
-        except Exception as exc:
+        except keyring_error as exc:
             raise SecretStoreError("Failed storing secret in system keyring.") from exc
 
     def _load_from_keyring(self) -> str:
@@ -180,12 +181,13 @@ class EncryptedSecretStore:
         keyring = self._load_keyring_module()
         if keyring is None:
             raise SecretStoreError("Python keyring backend unavailable.")
+        keyring_error = self._keyring_error_type(keyring)
         try:
             value = keyring.get_password(
                 "acestep.external_lm.secret_store",
                 self._keyring_username(),
             )
-        except Exception as exc:
+        except keyring_error as exc:
             raise SecretStoreError("Failed reading secret from system keyring.") from exc
         if value is None:
             raise SecretStoreError("Secret not found in system keyring.")
@@ -200,9 +202,19 @@ class EncryptedSecretStore:
         """Return the Python keyring module when available."""
         try:
             import keyring
-        except Exception:
+        except ImportError:
             return None
         return keyring
+
+    @staticmethod
+    def _keyring_error_type(keyring_module) -> type[Exception]:
+        """Return the stable keyring base exception type for backend operations."""
+
+        errors_module = getattr(keyring_module, "errors", None)
+        keyring_error = getattr(errors_module, "KeyringError", None)
+        if isinstance(keyring_error, type) and issubclass(keyring_error, Exception):
+            return keyring_error
+        raise SecretStoreError("Python keyring backend missing KeyringError support.")
 
     @staticmethod
     def _sanitize_error(stderr: str) -> str:
