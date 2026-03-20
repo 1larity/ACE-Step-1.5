@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from acestep.text_tasks import secure_secret_store
-from acestep.text_tasks.secure_secret_store import EncryptedSecretStore
+from acestep.text_tasks.secure_secret_store import EncryptedSecretStore, SecretStoreError
 
 
 class SecureSecretStoreTests(unittest.TestCase):
@@ -111,6 +111,31 @@ class SecureSecretStoreTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(captured["mode"], 0o600)
         self.assertFalse(captured["path"].exists())
+
+    def test_run_openssl_raises_clear_error_when_process_times_out(self) -> None:
+        """Hung OpenSSL invocations should surface a deterministic secret-store error."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            secret_path = Path(tmpdir) / "secret.enc"
+            store = EncryptedSecretStore(
+                secret_path=secret_path,
+                openssl_path="/usr/bin/openssl",
+            )
+            with patch(
+                "subprocess.run",
+                side_effect=subprocess.TimeoutExpired(
+                    cmd=["openssl", "enc"],
+                    timeout=secure_secret_store._OPENSSL_TIMEOUT_SEC,
+                ),
+            ):
+                with self.assertRaises(SecretStoreError) as exc:
+                    store._run_openssl(
+                        args=["enc", "-aes-256-cbc"],
+                        passphrase="passphrase",
+                        stdin_bytes=b"secret",
+                    )
+
+        self.assertIn("timed out", str(exc.exception))
 
 
 if __name__ == "__main__":
