@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import Any
+
 from .external_ai_types import ExternalAIClientError
 
-SUPPORTED_REQUEST_PROTOCOLS = frozenset({"anthropic_messages", "openai_chat"})
+SUPPORTED_PROTOCOLS = frozenset({"anthropic_messages", "openai_chat"})
+SUPPORTED_REQUEST_PROTOCOLS = SUPPORTED_PROTOCOLS
 
 
 def extract_intent_signal_text(intent: str) -> str:
@@ -21,30 +25,51 @@ def extract_intent_signal_text(intent: str) -> str:
     return (intent or "").strip().lower()
 
 
-def normalize_request_protocol(protocol: str) -> str:
-    """Validate and normalize a supported request protocol identifier."""
+def normalize_protocol(protocol: str, *, purpose: str = "request") -> str:
+    """Validate and normalize a supported external AI protocol identifier."""
 
     normalized_protocol = (protocol or "openai_chat").strip().lower()
-    if normalized_protocol not in SUPPORTED_REQUEST_PROTOCOLS:
+    if normalized_protocol not in SUPPORTED_PROTOCOLS:
         raise ExternalAIClientError(
-            f"Unsupported external request protocol: {normalized_protocol or '<empty>'}."
+            f"Unsupported external {purpose} protocol: {normalized_protocol or '<empty>'}."
         )
     return normalized_protocol
 
 
-def require_message_pair(messages: list[dict[str, str]]) -> tuple[dict[str, str], dict[str, str]]:
+def normalize_request_protocol(protocol: str) -> str:
+    """Validate and normalize a supported request protocol identifier."""
+
+    return normalize_protocol(protocol, purpose="request")
+
+
+def require_message_pair(messages: Sequence[Any]) -> tuple[dict[str, str], dict[str, str]]:
     """Return the expected system and user messages for provider request building."""
 
-    if len(messages) < 2:
+    if not isinstance(messages, Sequence) or isinstance(messages, (str, bytes)) or len(messages) < 2:
         raise ExternalAIClientError(
             "External planning request requires both system and user messages."
         )
     system_message, user_message = messages[0], messages[1]
+    if not isinstance(system_message, dict) or not isinstance(user_message, dict):
+        raise ExternalAIClientError(
+            "External planning request requires both system and user messages."
+        )
     if system_message.get("role") != "system" or user_message.get("role") != "user":
         raise ExternalAIClientError(
             "External planning request requires a system message followed by a user message."
         )
-    if "content" not in system_message or "content" not in user_message:
+    system_content = system_message.get("content")
+    user_content = user_message.get("content")
+    if (
+        not isinstance(system_message.get("role"), str)
+        or not system_message.get("role", "").strip()
+        or not isinstance(user_message.get("role"), str)
+        or not user_message.get("role", "").strip()
+        or not isinstance(system_content, str)
+        or system_content == ""
+        or not isinstance(user_content, str)
+        or user_content == ""
+    ):
         raise ExternalAIClientError(
             "External planning request requires content fields on system and user messages."
         )

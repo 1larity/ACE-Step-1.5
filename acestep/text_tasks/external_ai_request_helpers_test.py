@@ -67,6 +67,13 @@ class ExternalAIRequestHelpersTests(unittest.TestCase):
 
         self.assertEqual(guidance, "")
 
+    def test_intent_specific_guidance_does_not_treat_wordless_vocalise_as_instrumental(self) -> None:
+        """Descriptive wordless vocal prompts should not be reclassified as no-vocals."""
+
+        guidance = build_intent_specific_guidance("Caption: wordless choir and vocalise textures")
+
+        self.assertEqual(guidance, "")
+
     def test_build_http_error_guidance_accepts_string_error_shape(self) -> None:
         """Provider payloads with a string ``error`` field should not crash parsing."""
 

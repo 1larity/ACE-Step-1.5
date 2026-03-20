@@ -10,9 +10,8 @@ from .external_ai_json_parsing import (
     to_float,
     to_int,
 )
+from .external_ai_protocols import normalize_protocol
 from .external_ai_types import ExternalAIClientError, ExternalAIPlan
-
-SUPPORTED_RESPONSE_PROTOCOLS = frozenset({"anthropic_messages", "openai_chat"})
 
 
 def extract_protocol_message_content(*, raw_response: str, protocol: str) -> str:
@@ -23,7 +22,7 @@ def extract_protocol_message_content(*, raw_response: str, protocol: str) -> str
     except json.JSONDecodeError as exc:
         raise ExternalAIClientError("Invalid External AI response shape.") from exc
 
-    normalized_protocol = _normalize_response_protocol(protocol)
+    normalized_protocol = normalize_protocol(protocol, purpose="response")
     if normalized_protocol == "anthropic_messages":
         return _extract_anthropic_content(outer)
     return _extract_openai_style_content(outer)
@@ -84,26 +83,25 @@ def _extract_openai_style_content(outer: dict[str, object]) -> str:
         if not isinstance(choices, list) or not choices:
             raise ExternalAIClientError("External AI response is missing choices.")
         choice = choices[0]
+        if not isinstance(choice, dict):
+            raise ExternalAIClientError("Invalid OpenAI-style External AI response shape.")
         message = choice["message"]
+        if not isinstance(message, dict):
+            raise ExternalAIClientError("Invalid OpenAI-style External AI response shape.")
         content = message.get("content", "")
+        if isinstance(content, str):
+            return content
         if isinstance(content, list):
-            text_chunks = [
-                block.get("text", "")
-                for block in content
-                if isinstance(block, dict) and block.get("type") == "text"
-            ]
-            content = "\n".join(chunk for chunk in text_chunks if chunk)
-        return str(content or "")
+            text_chunks: list[str] = []
+            for block in content:
+                if not isinstance(block, dict) or block.get("type") != "text":
+                    raise ExternalAIClientError("Invalid OpenAI-style External AI response shape.")
+                text = block.get("text", "")
+                if not isinstance(text, str):
+                    raise ExternalAIClientError("Invalid OpenAI-style External AI response shape.")
+                if text:
+                    text_chunks.append(text)
+            return "\n".join(text_chunks)
+        raise ExternalAIClientError("Invalid OpenAI-style External AI response shape.")
     except (KeyError, TypeError) as exc:
         raise ExternalAIClientError("Invalid OpenAI-style External AI response shape.") from exc
-
-
-def _normalize_response_protocol(protocol: str) -> str:
-    """Validate and normalize a supported response protocol identifier."""
-
-    normalized_protocol = (protocol or "openai_chat").strip().lower()
-    if normalized_protocol not in SUPPORTED_RESPONSE_PROTOCOLS:
-        raise ExternalAIClientError(
-            f"Unsupported external response protocol: {normalized_protocol or '<empty>'}."
-        )
-    return normalized_protocol

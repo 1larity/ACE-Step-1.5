@@ -132,18 +132,23 @@ def extract_labelled_plan_fields(content: str) -> dict[str, Any]:
         "lyrics": "lyrics",
         "bpm": "bpm",
         "duration": "duration",
+        "keyscale": "key_scale",
         "key_scale": "key_scale",
         "key scale": "key_scale",
+        "timesignature": "time_signature",
         "time_signature": "time_signature",
         "time signature": "time_signature",
+        "vocallanguage": "vocal_language",
         "vocal_language": "vocal_language",
         "vocal language": "vocal_language",
         "instrumental": "instrumental",
     }
     pattern = re.compile(
-        r"^\s*(caption|lyrics|bpm|duration|key[_ ]scale|time[_ ]signature|"
-        r"vocal[_ ]language|instrumental)\s*:\s*(.+?)(?=^\s*(?:caption|lyrics|bpm|"
-        r"duration|key[_ ]scale|time[_ ]signature|vocal[_ ]language|instrumental)\s*:|\Z)",
+        r"^\s*(caption|lyrics|bpm|duration|key(?:[_ ]scale|scale)|"
+        r"time(?:[_ ]signature|signature)|vocal(?:[_ ]language|language)|"
+        r"instrumental)\s*:\s*(.+?)(?=^\s*(?:caption|lyrics|bpm|duration|"
+        r"key(?:[_ ]scale|scale)|time(?:[_ ]signature|signature)|"
+        r"vocal(?:[_ ]language|language)|instrumental)\s*:|\Z)",
         flags=re.IGNORECASE | re.MULTILINE | re.DOTALL,
     )
     parsed: dict[str, Any] = {}

@@ -81,6 +81,22 @@ class ExternalAIJsonParsingTests(unittest.TestCase):
         self.assertIn("We stay awake until the morning glow", parsed["lyrics"])
         self.assertEqual(parsed["bpm"], "118")
 
+    def test_load_plan_json_object_accepts_runtime_alias_labels(self) -> None:
+        """Runtime alias labels without underscores should map to canonical JSON keys."""
+
+        parsed = load_plan_json_object(
+            """
+            Caption: Dreamy synth-pop with neon city atmosphere
+            KeyScale: C Major
+            TimeSignature: 4/4
+            VocalLanguage: en
+            """
+        )
+
+        self.assertEqual(parsed["key_scale"], "C Major")
+        self.assertEqual(parsed["time_signature"], "4/4")
+        self.assertEqual(parsed["vocal_language"], "en")
+
 
 if __name__ == "__main__":
     unittest.main()
