@@ -53,6 +53,18 @@ class ExternalLmModelDiscoveryTests(unittest.TestCase):
             ],
         )
 
+    def test_build_model_list_urls_keeps_existing_model_endpoint(self) -> None:
+        """Existing model-list endpoints should be used directly."""
+
+        self.assertEqual(
+            _build_model_list_urls(
+                provider="openai",
+                protocol="openai_chat",
+                base_url="https://api.openai.com/v1/models",
+            ),
+            ["https://api.openai.com/v1/models"],
+        )
+
     @patch("acestep.text_tasks.external_lm_model_discovery.request.urlopen")
     def test_discover_external_models_reads_ollama_tags_payload(self, urlopen_mock) -> None:
         """Ollama `/api/tags` responses should yield model names."""
