@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import unittest
+from unittest.mock import patch
 
 from acestep.text_tasks.external_ai_request_helpers import (
     build_http_error_guidance,
@@ -88,7 +90,9 @@ class ExternalAIRequestHelpersTests(unittest.TestCase):
     def test_resolve_max_tokens_for_format_uses_tighter_budget(self) -> None:
         """Format-mode calls should use a smaller completion budget by default."""
 
-        self.assertEqual(resolve_max_tokens_for_task_focus("format"), 768)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ACESTEP_EXTERNAL_FORMAT_MAX_TOKENS", None)
+            self.assertEqual(resolve_max_tokens_for_task_focus("format"), 768)
 
     def test_build_request_for_protocol_accepts_task_specific_max_tokens(self) -> None:
         """OpenAI-compatible payloads should honor an explicit max-token override."""

@@ -97,6 +97,22 @@ class ExternalAIJsonParsingTests(unittest.TestCase):
         self.assertEqual(parsed["time_signature"], "4/4")
         self.assertEqual(parsed["vocal_language"], "en")
 
+    def test_load_plan_json_object_accepts_hyphenated_alias_labels(self) -> None:
+        """Hyphenated labelled aliases should normalize into the canonical keys."""
+
+        parsed = load_plan_json_object(
+            """
+            Caption: Dreamy synth-pop with neon city atmosphere
+            Key-Scale: C Major
+            Time-Signature: 4/4
+            Vocal-Language: en
+            """
+        )
+
+        self.assertEqual(parsed["key_scale"], "C Major")
+        self.assertEqual(parsed["time_signature"], "4/4")
+        self.assertEqual(parsed["vocal_language"], "en")
+
 
 if __name__ == "__main__":
     unittest.main()
