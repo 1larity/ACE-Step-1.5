@@ -86,7 +86,11 @@ _EXTERNAL_PROVIDER_PROFILES: dict[str, ExternalProviderProfile] = {
 
 
 def get_external_provider_profile(provider: str | None) -> ExternalProviderProfile:
-    """Return the provider profile for a provider identifier."""
+    """Return the provider profile for a provider identifier.
+
+    Raises:
+        ValueError: If ``provider`` is not a supported external provider.
+    """
 
     token = (provider or "").strip().lower()
     if token in _EXTERNAL_PROVIDER_PROFILES:
@@ -105,7 +109,11 @@ def get_external_provider_choices() -> list[tuple[str, str]]:
 
 
 def build_external_model_choice(provider: str, model: str) -> str:
-    """Build the LM dropdown token for an external provider/model pair."""
+    """Build the LM dropdown token for an external provider/model pair.
+
+    The returned token uses ``external:{provider_id}:{model}``, where the
+    provider id is the canonical split point for downstream parsing.
+    """
 
     profile = get_external_provider_profile(provider)
     normalized_model = (model or "").strip() or profile.default_model

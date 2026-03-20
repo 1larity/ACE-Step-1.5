@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# TODO(1larity): Split OpenSSL and keyring backends into smaller modules after
+# PR #881 lands. Keeping the facade together here avoids widening this storage slice.
 import os
 import shutil
 import subprocess
@@ -9,6 +11,8 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+_OPENSSL_TIMEOUT_SEC = 30
 
 
 class SecretStoreError(RuntimeError):
@@ -134,13 +138,17 @@ class EncryptedSecretStore:
             os.close(passphrase_fd)
             passphrase_fd = -1
             cmd = [self.openssl_path, *args, "-pass", f"file:{passphrase_path}"]
-            return subprocess.run(
-                cmd,
-                input=stdin_bytes,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=False,
-            )
+            try:
+                return subprocess.run(
+                    cmd,
+                    input=stdin_bytes,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                    timeout=_OPENSSL_TIMEOUT_SEC,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise SecretStoreError("OpenSSL operation timed out.") from exc
         finally:
             if passphrase_fd != -1:
                 try:

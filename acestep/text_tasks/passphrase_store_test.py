@@ -1,6 +1,7 @@
 """Tests for cross-platform runtime passphrase storage helpers."""
 
 import os
+import subprocess
 import sys
 import tempfile
 import types
@@ -101,6 +102,58 @@ class PassphraseStoreTests(unittest.TestCase):
                     resolved = passphrase_store.resolve_runtime_passphrase()
 
         self.assertEqual(resolved, "  keyring-secret  ")
+
+    def test_resolve_uses_default_secret_service_when_env_values_are_whitespace(self) -> None:
+        """Whitespace-only secret service env vars should fall back to the defaults."""
+
+        with patch.dict(
+            os.environ,
+            {
+                "ACESTEP_GLM_SECRET_SERVICE": "   ",
+                "ACESTEP_GLM_SECRET_USERNAME": "\t",
+            },
+            clear=True,
+        ), patch(
+            "acestep.text_tasks.passphrase_store._load_passphrase_from_secret_tool",
+            return_value=None,
+        ) as secret_tool_mock, patch(
+            "acestep.text_tasks.passphrase_store._load_passphrase_from_keyring",
+            return_value="keyring-secret",
+        ) as keyring_mock:
+            resolved = passphrase_store.resolve_runtime_passphrase()
+
+        self.assertEqual(resolved, "keyring-secret")
+        secret_tool_mock.assert_called_once_with(
+            service=passphrase_store.EXTERNAL_LM_SECRET_SERVICE,
+            username=passphrase_store.EXTERNAL_LM_SECRET_USERNAME,
+        )
+        keyring_mock.assert_called_once_with(
+            service=passphrase_store.EXTERNAL_LM_SECRET_SERVICE,
+            username=passphrase_store.EXTERNAL_LM_SECRET_USERNAME,
+        )
+
+    def test_store_falls_back_to_python_keyring_when_secret_tool_times_out(self) -> None:
+        """A hung secret-tool call should degrade cleanly to the python keyring fallback."""
+
+        fake_keyring = types.SimpleNamespace()
+        fake_keyring.set_password = lambda *_args: None
+
+        with patch.object(passphrase_store.shutil, "which", return_value="/usr/bin/secret-tool"):
+            with patch(
+                "acestep.text_tasks.passphrase_store.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(
+                    cmd=["secret-tool", "store"],
+                    timeout=passphrase_store._SECRET_TOOL_TIMEOUT_SEC,
+                ),
+            ), patch.dict(sys.modules, {"keyring": fake_keyring}), patch.dict(
+                os.environ,
+                {},
+                clear=True,
+            ):
+                ok, message = passphrase_store.store_runtime_passphrase("saved-secret")
+
+        self.assertTrue(ok)
+        self.assertIn("python keyring", message)
 
 
 if __name__ == "__main__":
