@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections import OrderedDict
 from typing import Any
-from urllib import error, request
+from urllib import error, parse, request
 
 
 class ExternalModelDiscoveryError(RuntimeError):
@@ -22,6 +22,12 @@ def discover_external_models(
 ) -> list[str]:
     """Discover model identifiers from a provider's model-list endpoint."""
 
+    parsed_base_url = parse.urlparse(base_url.strip())
+    if parsed_base_url.scheme and parsed_base_url.scheme not in {"http", "https"}:
+        raise ExternalModelDiscoveryError(
+            f"Unsupported URL scheme for model discovery: {parsed_base_url.scheme}"
+        )
+
     candidate_urls = _build_model_list_urls(
         provider=provider,
         protocol=protocol,
@@ -36,6 +42,10 @@ def discover_external_models(
     failures: list[str] = []
 
     for url in candidate_urls:
+        parsed_url = parse.urlparse(url)
+        if parsed_url.scheme not in {"http", "https"}:
+            failures.append(f"{url} -> unsupported URL scheme")
+            continue
         req = request.Request(url=url, headers=headers, method="GET")
         try:
             with request.urlopen(req, timeout=timeout_sec) as resp:

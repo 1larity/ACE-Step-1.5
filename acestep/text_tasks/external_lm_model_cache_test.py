@@ -132,6 +132,38 @@ class ExternalLmModelCacheTests(unittest.TestCase):
 
         self.assertIsNone(cached)
 
+    def test_load_cached_external_models_uses_default_ttl_when_env_is_invalid(self) -> None:
+        """Malformed TTL env values should fall back to the default cache window."""
+
+        with tempfile.TemporaryDirectory() as tmpdir, _PatchedEnv(tmpdir):
+            save_cached_external_models(
+                provider="openai",
+                protocol="openai_chat",
+                base_url="https://api.openai.com/v1/chat/completions",
+                models=["gpt-4o-mini"],
+            )
+            os.environ["ACESTEP_EXTERNAL_MODEL_CACHE_TTL_SEC"] = "not-an-int"
+
+            cached = load_cached_external_models(
+                provider="openai",
+                protocol="openai_chat",
+                base_url="https://api.openai.com/v1/chat/completions",
+            )
+
+        self.assertEqual(cached, ["gpt-4o-mini"])
+
+    def test_patched_env_restores_existing_ttl_value(self) -> None:
+        """Temporary env overrides should preserve pre-existing TTL configuration."""
+
+        original_ttl = "777"
+        with patch.dict(os.environ, {"ACESTEP_EXTERNAL_MODEL_CACHE_TTL_SEC": original_ttl}, clear=False):
+            with tempfile.TemporaryDirectory() as tmpdir, _PatchedEnv(tmpdir):
+                os.environ["ACESTEP_EXTERNAL_MODEL_CACHE_TTL_SEC"] = "10"
+
+            restored = os.environ.get("ACESTEP_EXTERNAL_MODEL_CACHE_TTL_SEC")
+
+        self.assertEqual(restored, original_ttl)
+
 
 class _PatchedEnv:
     """Temporarily redirect user-local storage into a writable temp directory."""
@@ -139,11 +171,13 @@ class _PatchedEnv:
     def __init__(self, tmpdir: str) -> None:
         self.tmpdir = tmpdir
         self.original = None
+        self.original_ttl = None
 
     def __enter__(self) -> "_PatchedEnv":
         """Apply the temporary XDG data home override."""
 
         self.original = os.environ.get("XDG_DATA_HOME")
+        self.original_ttl = os.environ.get("ACESTEP_EXTERNAL_MODEL_CACHE_TTL_SEC")
         os.environ["XDG_DATA_HOME"] = self.tmpdir
         return self
 
@@ -154,7 +188,10 @@ class _PatchedEnv:
             os.environ.pop("XDG_DATA_HOME", None)
         else:
             os.environ["XDG_DATA_HOME"] = self.original
-        os.environ.pop("ACESTEP_EXTERNAL_MODEL_CACHE_TTL_SEC", None)
+        if self.original_ttl is None:
+            os.environ.pop("ACESTEP_EXTERNAL_MODEL_CACHE_TTL_SEC", None)
+        else:
+            os.environ["ACESTEP_EXTERNAL_MODEL_CACHE_TTL_SEC"] = self.original_ttl
         return False
 
 

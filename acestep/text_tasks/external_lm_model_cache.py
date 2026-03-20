@@ -7,6 +7,8 @@ import os
 import time
 from pathlib import Path
 
+from loguru import logger
+
 
 def external_lm_model_cache_path() -> Path:
     """Return the user-local JSON cache path for discovered provider models."""
@@ -32,7 +34,7 @@ def load_cached_external_models(
     entry = payload.get(_cache_key(provider=provider, protocol=protocol, base_url=base_url))
     if not isinstance(entry, dict):
         return None
-    ttl_sec = int(os.getenv("ACESTEP_EXTERNAL_MODEL_CACHE_TTL_SEC", "43200"))
+    ttl_sec = _safe_int_env("ACESTEP_EXTERNAL_MODEL_CACHE_TTL_SEC", default=43200)
     updated_at = float(entry.get("updated_at", 0))
     if ttl_sec >= 0 and (time.time() - updated_at) > ttl_sec:
         return None
@@ -89,14 +91,16 @@ def invalidate_cached_external_models(
         try:
             if path.exists():
                 path.unlink()
-        except OSError:
+        except OSError as exc:
+            logger.error("Failed removing external LM model cache file {}: {}", path, exc)
             return
         return
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(filtered, ensure_ascii=True, indent=2), encoding="utf-8")
         path.chmod(0o600)
-    except OSError:
+    except OSError as exc:
+        logger.error("Failed writing external LM model cache file {}: {}", path, exc)
         return
 
 
@@ -125,6 +129,16 @@ def _cache_key(*, provider: str, protocol: str, base_url: str) -> str:
         ensure_ascii=True,
         separators=(",", ":"),
     )
+
+
+def _safe_int_env(name: str, *, default: int) -> int:
+    """Return an integer env var value or the provided default when malformed."""
+
+    raw_value = os.getenv(name, "")
+    try:
+        return int(raw_value) if raw_value != "" else default
+    except (TypeError, ValueError):
+        return default
 
 
 def _matches_invalidation(

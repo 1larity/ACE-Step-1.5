@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from acestep.text_tasks.external_lm_model_discovery import (
     _build_model_list_urls,
+    ExternalModelDiscoveryError,
     discover_external_models,
 )
 
@@ -73,6 +74,20 @@ class ExternalLmModelDiscoveryTests(unittest.TestCase):
         )
 
         self.assertEqual(models, ["llama3.1:8b-instruct", "codellama:13b"])
+
+    @patch("acestep.text_tasks.external_lm_model_discovery.request.urlopen")
+    def test_discover_external_models_rejects_non_http_schemes(self, urlopen_mock) -> None:
+        """Discovery should not call urlopen for unsupported URL schemes."""
+
+        with self.assertRaisesRegex(ExternalModelDiscoveryError, "Unsupported URL scheme"):
+            discover_external_models(
+                provider="openai",
+                protocol="openai_chat",
+                base_url="file:///tmp/models",
+                api_key="",
+            )
+
+        urlopen_mock.assert_not_called()
 
 
 if __name__ == "__main__":
