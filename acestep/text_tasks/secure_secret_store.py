@@ -29,7 +29,7 @@ class EncryptedSecretStore:
     def __post_init__(self) -> None:
         """Validate backend availability for storage operations."""
         object.__setattr__(self, "secret_path", self.secret_path.expanduser())
-        if self._uses_native_keyring():
+        if self.uses_native_keyring():
             return
         openssl_binary = self.openssl_path or shutil.which("openssl")
         if not openssl_binary:
@@ -67,7 +67,7 @@ class EncryptedSecretStore:
         """Encrypt and store a secret value."""
         if secret == "":
             raise SecretStoreError("Secret cannot be empty.")
-        if self._uses_native_keyring():
+        if self.uses_native_keyring():
             self._save_to_keyring(secret)
             return
         if passphrase == "":
@@ -94,7 +94,7 @@ class EncryptedSecretStore:
 
     def load(self, *, passphrase: str) -> str:
         """Decrypt and return a stored secret value."""
-        if self._uses_native_keyring():
+        if self.uses_native_keyring():
             return self._load_from_keyring()
         if not self.secret_path.exists():
             raise SecretStoreError(f"Secret not found at: {self.secret_path}")
@@ -161,7 +161,7 @@ class EncryptedSecretStore:
                 except OSError:
                     pass
 
-    def _uses_native_keyring(self) -> bool:
+    def uses_native_keyring(self) -> bool:
         """Return whether the current platform should prefer the system keyring."""
         return sys.platform in {"win32", "darwin"} and self._load_keyring_module() is not None
 
