@@ -42,6 +42,24 @@ class ExternalAIResponseParsingTests(unittest.TestCase):
         self.assertEqual(plan.key_scale, "C Major")
         self.assertEqual(plan.time_signature, "4/4")
 
+    def test_extract_protocol_message_content_rejects_non_mapping_openai_message(self) -> None:
+        """OpenAI-style parsing should reject malformed non-dict message payloads."""
+
+        with self.assertRaisesRegex(ExternalAIClientError, "Invalid OpenAI-style"):
+            extract_protocol_message_content(
+                raw_response='{"choices":[{"message":"bad"}]}',
+                protocol="openai_chat",
+            )
+
+    def test_extract_protocol_message_content_rejects_non_text_openai_content(self) -> None:
+        """OpenAI-style parsing should reject malformed non-text content payloads."""
+
+        with self.assertRaisesRegex(ExternalAIClientError, "Invalid OpenAI-style"):
+            extract_protocol_message_content(
+                raw_response='{"choices":[{"message":{"content":{"text":"bad"}}}]}',
+                protocol="openai_chat",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

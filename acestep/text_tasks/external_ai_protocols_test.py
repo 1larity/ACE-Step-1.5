@@ -6,6 +6,7 @@ import unittest
 
 from acestep.text_tasks.external_ai_protocols import (
     extract_intent_signal_text,
+    normalize_protocol,
     normalize_request_protocol,
     require_message_pair,
 )
@@ -30,6 +31,12 @@ class ExternalAIProtocolsTests(unittest.TestCase):
         with self.assertRaises(ExternalAIClientError):
             normalize_request_protocol("mystery")
 
+    def test_normalize_protocol_rejects_unknown_response_values(self) -> None:
+        """Shared protocol normalization should keep response validation strict."""
+
+        with self.assertRaisesRegex(ExternalAIClientError, "Unsupported external response protocol"):
+            normalize_protocol("mystery", purpose="response")
+
     def test_require_message_pair_requires_system_and_user_messages(self) -> None:
         """Protocol builders should reject incomplete message lists cleanly."""
 
@@ -52,6 +59,23 @@ class ExternalAIProtocolsTests(unittest.TestCase):
 
         with self.assertRaises(ExternalAIClientError):
             require_message_pair([{"role": "system"}, {"role": "user", "content": "u"}])
+
+    def test_require_message_pair_rejects_non_mapping_messages(self) -> None:
+        """Protocol builders should fail fast on malformed message container entries."""
+
+        with self.assertRaises(ExternalAIClientError):
+            require_message_pair(["system", {"role": "user", "content": "u"}])
+
+    def test_require_message_pair_rejects_empty_content(self) -> None:
+        """Protocol builders should reject empty string content fields."""
+
+        with self.assertRaises(ExternalAIClientError):
+            require_message_pair(
+                [
+                    {"role": "system", "content": ""},
+                    {"role": "user", "content": "u"},
+                ]
+            )
 
 
 if __name__ == "__main__":

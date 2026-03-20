@@ -54,7 +54,7 @@ def build_intent_specific_guidance(intent: str) -> str:
 
     if any(
         marker in normalized_signal
-        for marker in ("no vocals", "wordless", "no lead vocals", "instrumental only")
+        for marker in ("no vocals", "no lead vocals", "instrumental only")
     ) or normalized_signal in {"instrumental", "fully instrumental", "purely instrumental"}:
         return (
             "Honor the no-vocals or instrumental request exactly. "
