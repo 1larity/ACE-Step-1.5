@@ -125,10 +125,14 @@ class EncryptedSecretStore:
     ) -> subprocess.CompletedProcess[bytes]:
         """Execute OpenSSL with the passphrase stored in a temporary file."""
         passphrase_path: Path | None = None
+        passphrase_fd = -1
         try:
-            with tempfile.NamedTemporaryFile("wb", delete=False) as handle:
-                handle.write(passphrase.encode("utf-8"))
-                passphrase_path = Path(handle.name)
+            passphrase_fd, raw_path = tempfile.mkstemp()
+            passphrase_path = Path(raw_path)
+            os.chmod(passphrase_path, 0o600)
+            os.write(passphrase_fd, passphrase.encode("utf-8"))
+            os.close(passphrase_fd)
+            passphrase_fd = -1
             cmd = [self.openssl_path, *args, "-pass", f"file:{passphrase_path}"]
             return subprocess.run(
                 cmd,
@@ -138,6 +142,11 @@ class EncryptedSecretStore:
                 check=False,
             )
         finally:
+            if passphrase_fd != -1:
+                try:
+                    os.close(passphrase_fd)
+                except OSError:
+                    pass
             if passphrase_path is not None:
                 try:
                     passphrase_path.unlink()

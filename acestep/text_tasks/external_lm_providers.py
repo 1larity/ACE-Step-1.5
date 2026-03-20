@@ -116,7 +116,7 @@ def get_external_base_url_preset_choices(provider: str | None) -> list[tuple[str
     """Return user-facing base-URL preset choices for a provider."""
 
     profile = get_external_provider_profile(provider)
-    return list(profile.base_url_presets) + [("Custom", CUSTOM_BASE_URL_PRESET)]
+    return [*profile.base_url_presets, ("Custom", CUSTOM_BASE_URL_PRESET)]
 
 
 def get_external_base_url_preset_value(provider: str | None, base_url: str | None) -> str:

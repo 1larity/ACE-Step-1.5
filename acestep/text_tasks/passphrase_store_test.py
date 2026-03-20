@@ -5,6 +5,7 @@ import sys
 import tempfile
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from acestep.text_tasks import passphrase_store
@@ -61,8 +62,9 @@ class PassphraseStoreTests(unittest.TestCase):
 
         with patch.object(passphrase_store.shutil, "which", return_value=None):
             with patch.dict(sys.modules, {"keyring": fake_keyring}):
-                ok, message = passphrase_store.store_runtime_passphrase("saved-secret")
-                resolved = passphrase_store.resolve_runtime_passphrase()
+                with patch.dict(os.environ, {}, clear=True):
+                    ok, message = passphrase_store.store_runtime_passphrase("saved-secret")
+                    resolved = passphrase_store.resolve_runtime_passphrase()
 
         self.assertTrue(ok)
         self.assertIn("python keyring", message)
@@ -74,12 +76,13 @@ class PassphraseStoreTests(unittest.TestCase):
 
         fake_keyring = types.SimpleNamespace()
         fake_keyring.get_password = lambda *_args: "keyring-secret"
+        missing_path = Path(tempfile.gettempdir()) / "does-not-exist-passphrase.txt"
 
         with patch.object(passphrase_store.shutil, "which", return_value=None):
             with patch.dict(sys.modules, {"keyring": fake_keyring}):
                 with patch.dict(
                     os.environ,
-                    {"ACESTEP_GLM_STORE_PASSPHRASE_FILE": "/tmp/does-not-exist-passphrase.txt"},
+                    {"ACESTEP_GLM_STORE_PASSPHRASE_FILE": str(missing_path)},
                     clear=True,
                 ):
                     resolved = passphrase_store.resolve_runtime_passphrase()
@@ -94,7 +97,8 @@ class PassphraseStoreTests(unittest.TestCase):
 
         with patch.object(passphrase_store.shutil, "which", return_value=None):
             with patch.dict(sys.modules, {"keyring": fake_keyring}):
-                resolved = passphrase_store.resolve_runtime_passphrase()
+                with patch.dict(os.environ, {}, clear=True):
+                    resolved = passphrase_store.resolve_runtime_passphrase()
 
         self.assertEqual(resolved, "  keyring-secret  ")
 
