@@ -44,4 +44,8 @@ def require_message_pair(messages: list[dict[str, str]]) -> tuple[dict[str, str]
         raise ExternalAIClientError(
             "External planning request requires a system message followed by a user message."
         )
+    if "content" not in system_message or "content" not in user_message:
+        raise ExternalAIClientError(
+            "External planning request requires content fields on system and user messages."
+        )
     return system_message, user_message

@@ -47,6 +47,12 @@ class ExternalAIProtocolsTests(unittest.TestCase):
                 ]
             )
 
+    def test_require_message_pair_requires_content_fields(self) -> None:
+        """Protocol builders should reject role pairs that omit content."""
+
+        with self.assertRaises(ExternalAIClientError):
+            require_message_pair([{"role": "system"}, {"role": "user", "content": "u"}])
+
 
 if __name__ == "__main__":
     unittest.main()
