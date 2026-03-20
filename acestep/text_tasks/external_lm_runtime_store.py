@@ -81,7 +81,8 @@ def load_all_external_lm_runtime_settings() -> dict[str, object]:
 def hydrate_external_lm_env_from_store() -> bool:
     """Populate missing runtime env vars from persisted external LM settings."""
 
-    settings = load_external_lm_runtime_settings()
+    requested_provider = os.getenv("ACESTEP_EXTERNAL_LM_PROVIDER", "")
+    settings = load_external_lm_runtime_settings(requested_provider or None)
     if not settings:
         return False
 
