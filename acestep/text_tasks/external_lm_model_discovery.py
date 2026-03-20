@@ -74,6 +74,8 @@ def _build_model_list_urls(*, provider: str, protocol: str, base_url: str) -> li
         return []
 
     candidates: list[str] = []
+    if root.endswith("/models") or root.endswith("/api/tags"):
+        candidates.append(root)
     if "/chat/completions" in root:
         candidates.append(root.replace("/chat/completions", "/models"))
     if root.endswith("/messages"):
