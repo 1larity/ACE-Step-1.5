@@ -18,17 +18,17 @@ _SECRET_TOOL_PATH = "secret-tool"
 def resolve_runtime_passphrase() -> str | None:
     """Resolve a runtime passphrase from env, file, secret-tool, or keyring."""
 
-    env_passphrase = os.getenv("ACESTEP_GLM_STORE_PASSPHRASE", "").strip()
-    if env_passphrase:
+    env_passphrase = os.getenv("ACESTEP_GLM_STORE_PASSPHRASE")
+    if env_passphrase not in {None, ""}:
         return env_passphrase
 
     file_path_raw = os.getenv("ACESTEP_GLM_STORE_PASSPHRASE_FILE", "").strip()
     if file_path_raw:
         try:
-            text = Path(file_path_raw).expanduser().read_text(encoding="utf-8").strip()
+            text = Path(file_path_raw).expanduser().read_text(encoding="utf-8")
         except OSError:
             text = ""
-        if text:
+        if text != "":
             return text
 
     service = os.getenv("ACESTEP_GLM_SECRET_SERVICE", EXTERNAL_LM_SECRET_SERVICE).strip()
@@ -47,7 +47,7 @@ def resolve_runtime_passphrase() -> str | None:
 def store_runtime_passphrase(passphrase: str) -> tuple[bool, str]:
     """Persist a runtime passphrase using the best available secret store."""
 
-    if not passphrase:
+    if passphrase == "":
         return False, "Passphrase cannot be empty."
 
     service = os.getenv("ACESTEP_GLM_SECRET_SERVICE", EXTERNAL_LM_SECRET_SERVICE).strip()
@@ -86,7 +86,7 @@ def _load_passphrase_from_secret_tool(*, service: str, username: str) -> str | N
     )
     if result.returncode != 0:
         return None
-    value = result.stdout.strip()
+    value = result.stdout
     return value or None
 
 
@@ -136,7 +136,7 @@ def _load_passphrase_from_keyring(*, service: str, username: str) -> str | None:
         value = keyring.get_password(service, username)
     except Exception:
         return None
-    return value.strip() if value else None
+    return value if value else None
 
 
 def _store_passphrase_in_keyring(

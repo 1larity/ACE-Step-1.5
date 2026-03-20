@@ -19,11 +19,21 @@ class PassphraseStoreTests(unittest.TestCase):
         with patch.dict(os.environ, {"ACESTEP_GLM_STORE_PASSPHRASE": "secret"}, clear=True):
             self.assertEqual(passphrase_store.resolve_runtime_passphrase(), "secret")
 
+    def test_resolve_preserves_env_whitespace(self) -> None:
+        """Environment passphrases should remain byte-for-byte intact."""
+
+        with patch.dict(
+            os.environ,
+            {"ACESTEP_GLM_STORE_PASSPHRASE": "  secret  "},
+            clear=True,
+        ):
+            self.assertEqual(passphrase_store.resolve_runtime_passphrase(), "  secret  ")
+
     def test_resolve_reads_passphrase_file(self) -> None:
         """A passphrase file should be used when env var is absent."""
 
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
-            handle.write("file-secret\n")
+            handle.write("  file-secret  ")
             file_path = handle.name
         try:
             with patch.dict(
@@ -31,7 +41,7 @@ class PassphraseStoreTests(unittest.TestCase):
                 {"ACESTEP_GLM_STORE_PASSPHRASE_FILE": file_path},
                 clear=True,
             ):
-                self.assertEqual(passphrase_store.resolve_runtime_passphrase(), "file-secret")
+                self.assertEqual(passphrase_store.resolve_runtime_passphrase(), "  file-secret  ")
         finally:
             os.unlink(file_path)
 
@@ -75,6 +85,18 @@ class PassphraseStoreTests(unittest.TestCase):
                     resolved = passphrase_store.resolve_runtime_passphrase()
 
         self.assertEqual(resolved, "keyring-secret")
+
+    def test_resolve_preserves_keyring_whitespace(self) -> None:
+        """Keyring-stored passphrases should remain byte-for-byte intact."""
+
+        fake_keyring = types.SimpleNamespace()
+        fake_keyring.get_password = lambda *_args: "  keyring-secret  "
+
+        with patch.object(passphrase_store.shutil, "which", return_value=None):
+            with patch.dict(sys.modules, {"keyring": fake_keyring}):
+                resolved = passphrase_store.resolve_runtime_passphrase()
+
+        self.assertEqual(resolved, "  keyring-secret  ")
 
 
 if __name__ == "__main__":

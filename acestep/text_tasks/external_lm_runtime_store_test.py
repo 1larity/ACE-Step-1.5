@@ -116,6 +116,48 @@ class ExternalLmRuntimeStoreTests(unittest.TestCase):
                     self.assertEqual(os.environ["ACESTEP_EXTERNAL_LM_PROVIDER"], "zai")
                     self.assertEqual(os.environ["ACESTEP_GLM_MODEL"], "glm-4.5-flash")
 
+    def test_hydrate_uses_env_selected_provider_when_present(self) -> None:
+        """Hydration should backfill from the provider already selected in env."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(os.environ, {"XDG_DATA_HOME": tmpdir}, clear=False):
+                config_dir = Path(tmpdir) / "acestep" / "config"
+                config_dir.mkdir(parents=True, exist_ok=True)
+                (config_dir / "external_lm_runtime.json").write_text(
+                    json.dumps(
+                        {
+                            "active_provider": "zai",
+                            "providers": {
+                                "zai": {
+                                    "protocol": "openai_chat",
+                                    "model": "glm-4.5-flash",
+                                    "base_url": "https://api.z.ai/api/paas/v4/chat/completions",
+                                },
+                                "openai": {
+                                    "protocol": "openai_chat",
+                                    "model": "gpt-4o-mini",
+                                    "base_url": "https://api.openai.com/v1/chat/completions",
+                                },
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                with patch.dict(
+                    os.environ,
+                    {"XDG_DATA_HOME": tmpdir, "ACESTEP_EXTERNAL_LM_PROVIDER": "openai"},
+                    clear=True,
+                ):
+                    changed = hydrate_external_lm_env_from_store()
+                    self.assertTrue(changed)
+                    self.assertEqual(os.environ["ACESTEP_EXTERNAL_LM_PROVIDER"], "openai")
+                    self.assertEqual(os.environ["ACESTEP_EXTERNAL_LM_MODEL"], "gpt-4o-mini")
+                    self.assertEqual(
+                        os.environ["ACESTEP_EXTERNAL_BASE_URL"],
+                        "https://api.openai.com/v1/chat/completions",
+                    )
+
     def test_load_external_lm_runtime_settings_supplies_safe_defaults_for_partial_record(self) -> None:
         """Partial provider records should fall back to provider defaults after upgrades."""
 
