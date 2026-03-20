@@ -79,7 +79,15 @@ def load_all_external_lm_runtime_settings() -> dict[str, object]:
 
 
 def hydrate_external_lm_env_from_store() -> bool:
-    """Populate missing runtime env vars from persisted external LM settings."""
+    """Populate missing runtime env vars from persisted external LM settings.
+
+    This mutates process-wide environment variables and is intended for early,
+    one-time startup hydration. It sets missing values for
+    ``ACESTEP_EXTERNAL_LM_PROVIDER``, ``ACESTEP_EXTERNAL_LM_PROTOCOL``,
+    ``ACESTEP_EXTERNAL_LM_MODEL``, and ``ACESTEP_EXTERNAL_BASE_URL``, plus the
+    derived ``ACESTEP_GLM_MODEL`` and ``ACESTEP_GLM_BASE_URL`` aliases when the
+    resolved provider is ``zai``. Returns ``True`` when any env var was set.
+    """
 
     requested_provider = os.getenv("ACESTEP_EXTERNAL_LM_PROVIDER", "")
     settings = load_external_lm_runtime_settings(requested_provider or None)

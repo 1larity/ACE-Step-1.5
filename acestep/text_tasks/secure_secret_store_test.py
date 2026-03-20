@@ -83,6 +83,35 @@ class SecureSecretStoreTests(unittest.TestCase):
             "test-key",
         )
 
+    def test_run_openssl_uses_restricted_temp_passphrase_file(self) -> None:
+        """OpenSSL passphrase files should be created with owner-only permissions."""
+
+        captured: dict[str, object] = {}
+
+        def fake_run(cmd, **kwargs):
+            passphrase_arg = cmd[cmd.index("-pass") + 1]
+            passphrase_path = Path(passphrase_arg.removeprefix("file:"))
+            captured["mode"] = passphrase_path.stat().st_mode & 0o777
+            captured["path"] = passphrase_path
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            secret_path = Path(tmpdir) / "secret.enc"
+            store = EncryptedSecretStore(
+                secret_path=secret_path,
+                openssl_path="/usr/bin/openssl",
+            )
+            with patch("subprocess.run", side_effect=fake_run):
+                result = store._run_openssl(
+                    args=["enc", "-aes-256-cbc"],
+                    passphrase="passphrase",
+                    stdin_bytes=b"secret",
+                )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(captured["mode"], 0o600)
+        self.assertFalse(captured["path"].exists())
+
 
 if __name__ == "__main__":
     unittest.main()

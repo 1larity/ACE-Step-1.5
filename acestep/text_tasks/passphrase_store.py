@@ -10,6 +10,7 @@ from pathlib import Path
 
 EXTERNAL_LM_SECRET_SERVICE = "acestep.external_lm"
 EXTERNAL_LM_SECRET_USERNAME = "external_lm_store_passphrase"
+# Backward-compatible GLM aliases are kept for callers that still import them directly.
 GLM_SECRET_SERVICE = EXTERNAL_LM_SECRET_SERVICE
 GLM_SECRET_USERNAME = EXTERNAL_LM_SECRET_USERNAME
 _SECRET_TOOL_PATH = "secret-tool"
