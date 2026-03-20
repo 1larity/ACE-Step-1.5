@@ -39,4 +39,9 @@ def require_message_pair(messages: list[dict[str, str]]) -> tuple[dict[str, str]
         raise ExternalAIClientError(
             "External planning request requires both system and user messages."
         )
-    return messages[0], messages[1]
+    system_message, user_message = messages[0], messages[1]
+    if system_message.get("role") != "system" or user_message.get("role") != "user":
+        raise ExternalAIClientError(
+            "External planning request requires a system message followed by a user message."
+        )
+    return system_message, user_message

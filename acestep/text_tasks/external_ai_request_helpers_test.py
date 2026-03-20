@@ -51,6 +51,22 @@ class ExternalAIRequestHelpersTests(unittest.TestCase):
 
         self.assertEqual(guidance, "")
 
+    def test_intent_specific_guidance_honors_explicit_instrumental_field(self) -> None:
+        """An explicit instrumental field should force no-vocals guidance."""
+
+        guidance = build_intent_specific_guidance(
+            "Caption: tropical funk female vocals\nInstrumental: true"
+        )
+
+        self.assertIn("Set instrumental to true", guidance)
+
+    def test_intent_specific_guidance_does_not_treat_instrumental_caption_word_as_flag(self) -> None:
+        """Freeform captions should not infer instrumental mode from descriptive wording."""
+
+        guidance = build_intent_specific_guidance("Caption: instrumental intro with female vocals")
+
+        self.assertEqual(guidance, "")
+
     def test_build_http_error_guidance_accepts_string_error_shape(self) -> None:
         """Provider payloads with a string ``error`` field should not crash parsing."""
 
@@ -152,6 +168,21 @@ class ExternalAIRequestHelpersTests(unittest.TestCase):
             )
 
         self.assertIn("requires both system and user messages", str(exc.exception))
+
+    def test_build_request_for_protocol_requires_system_then_user_roles_for_anthropic(self) -> None:
+        """Anthropic payload building should reject swapped or malformed role pairs."""
+
+        with self.assertRaises(ExternalAIClientError) as exc:
+            build_request_for_protocol(
+                protocol="anthropic_messages",
+                provider="claude",
+                api_key="test-key",
+                model="claude-sonnet-4-5",
+                messages=[{"role": "user", "content": "u"}, {"role": "assistant", "content": "a"}],
+                base_url="https://api.anthropic.com/v1/messages",
+            )
+
+        self.assertIn("system message followed by a user message", str(exc.exception))
 
     def test_build_request_for_protocol_rejects_unknown_protocol(self) -> None:
         """Unknown request protocols should fail fast instead of falling through silently."""
