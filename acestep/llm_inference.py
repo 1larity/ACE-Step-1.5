@@ -26,6 +26,7 @@ from acestep.llm_backend_compat import get_vllm_preflight_warning
 from acestep.constrained_logits_processor import MetadataConstrainedLogitsProcessor
 from acestep.constants import DEFAULT_LM_INSTRUCTION, DEFAULT_LM_UNDERSTAND_INSTRUCTION, DEFAULT_LM_INSPIRED_INSTRUCTION, DEFAULT_LM_REWRITE_INSTRUCTION, DURATION_MIN, DURATION_MAX
 from acestep.gpu_config import get_lm_gpu_memory_ratio, get_gpu_memory_gb, get_lm_model_size, get_global_gpu_config
+from acestep.text_tasks.enhancement_scaffold import build_preservation_directives
 
 # Minimum free VRAM (GB) required to attempt vLLM initialization.
 # vLLM's KV cache allocator adapts to available memory, so we only need a
@@ -2152,6 +2153,9 @@ class LLMHandler:
         else:
             # Normal prompt: caption + lyrics
             user_content = f"# Caption\n{caption}\n\n# Lyric\n{lyrics}"
+            preservation_directives = build_preservation_directives(caption=caption, lyrics=lyrics)
+            if preservation_directives:
+                user_content += f"\n\n# Preserve\n{preservation_directives}"
 
         return self.llm_tokenizer.apply_chat_template(
             [
