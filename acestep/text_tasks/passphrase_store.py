@@ -12,6 +12,9 @@ from loguru import logger
 
 EXTERNAL_LM_SECRET_SERVICE = "acestep.external_lm"
 EXTERNAL_LM_SECRET_USERNAME = "external_lm_store_passphrase"
+# Backward-compatible external-AI aliases are kept for UI helpers and older callers.
+EXTERNAL_AI_SECRET_SERVICE = EXTERNAL_LM_SECRET_SERVICE
+EXTERNAL_AI_SECRET_USERNAME = EXTERNAL_LM_SECRET_USERNAME
 # Backward-compatible GLM aliases are kept for callers that still import them directly.
 GLM_SECRET_SERVICE = EXTERNAL_LM_SECRET_SERVICE
 GLM_SECRET_USERNAME = EXTERNAL_LM_SECRET_USERNAME
