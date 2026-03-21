@@ -94,5 +94,43 @@ class ExternalLmRuntimeStoreHydrationTests(unittest.TestCase):
                         "https://api.openai.com/v1/chat/completions",
                     )
 
+    def test_hydrate_uses_explicit_provider_argument_when_env_is_unset(self) -> None:
+        """Hydration should support a provider passed explicitly by the caller."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(os.environ, {"XDG_DATA_HOME": tmpdir}, clear=False):
+                config_dir = Path(tmpdir) / "acestep" / "config"
+                config_dir.mkdir(parents=True, exist_ok=True)
+                (config_dir / "external_lm_runtime.json").write_text(
+                    json.dumps(
+                        {
+                            "active_provider": "zai",
+                            "providers": {
+                                "zai": {
+                                    "protocol": "openai_chat",
+                                    "model": "glm-4.5-flash",
+                                    "base_url": "https://api.z.ai/api/paas/v4/chat/completions",
+                                },
+                                "ollama": {
+                                    "protocol": "openai_chat",
+                                    "model": "qwen3:4b",
+                                    "base_url": "http://127.0.0.1:11434/v1/chat/completions",
+                                },
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                with patch.dict(os.environ, {"XDG_DATA_HOME": tmpdir}, clear=True):
+                    changed = hydrate_external_lm_env_from_store("ollama")
+                    self.assertTrue(changed)
+                    self.assertEqual(os.environ["ACESTEP_EXTERNAL_LM_PROVIDER"], "ollama")
+                    self.assertEqual(os.environ["ACESTEP_EXTERNAL_LM_MODEL"], "qwen3:4b")
+                    self.assertEqual(
+                        os.environ["ACESTEP_EXTERNAL_BASE_URL"],
+                        "http://127.0.0.1:11434/v1/chat/completions",
+                    )
+
 if __name__ == "__main__":
     unittest.main()
