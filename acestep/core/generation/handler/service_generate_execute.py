@@ -32,7 +32,6 @@ class ServiceGenerateExecuteMixin:
             precomputed_lm_hints_25Hz,
             non_cover_text_hidden_states,
             non_cover_text_attention_masks,
-            repaint_mask,
         ) = processed_data
         return {
             "keys": keys,
@@ -52,7 +51,6 @@ class ServiceGenerateExecuteMixin:
             "precomputed_lm_hints_25Hz": precomputed_lm_hints_25Hz,
             "non_cover_text_hidden_states": non_cover_text_hidden_states,
             "non_cover_text_attention_masks": non_cover_text_attention_masks,
-            "repaint_mask": repaint_mask,
         }
 
     def _resolve_service_seed_param(self, seed_list: Optional[List[int]]) -> Any:
@@ -75,13 +73,14 @@ class ServiceGenerateExecuteMixin:
         cfg_interval_end: float,
         shift: float,
         timesteps: Optional[List[float]],
-        repaint_crossfade_frames: int = 10,
-        repaint_injection_ratio: float = 0.5,
     ) -> Dict[str, Any]:
         """Build kwargs passed to model generation backends."""
-        repaint_mask = payload.get("repaint_mask")
-        clean_src_latents = payload.get("target_latents") if repaint_mask is not None else None
-
+        disable_tqdm = bool(getattr(self, "disable_tqdm", False))
+        runtime_progress_resolver = getattr(self, "_get_runtime_progress_callback", None)
+        if callable(runtime_progress_resolver):
+            runtime_progress = runtime_progress_resolver()
+        else:
+            runtime_progress = getattr(self, "_runtime_progress_callback", None)
         kwargs = {
             "text_hidden_states": payload["text_hidden_states"],
             "text_attention_mask": payload["text_attention_mask"],
@@ -106,11 +105,18 @@ class ServiceGenerateExecuteMixin:
             "cfg_interval_start": cfg_interval_start,
             "cfg_interval_end": cfg_interval_end,
             "shift": shift,
-            "repaint_mask": repaint_mask,
-            "clean_src_latents": clean_src_latents,
-            "repaint_crossfade_frames": repaint_crossfade_frames,
-            "repaint_injection_ratio": repaint_injection_ratio,
+            "use_progress_bar": not disable_tqdm,
+            "disable_tqdm": disable_tqdm,
         }
+        if callable(runtime_progress):
+            kwargs["progress_callback"] = (
+                lambda current, total, desc="DiT diffusion steps": runtime_progress(
+                    stage="diffusion",
+                    current=current,
+                    total=total,
+                    desc=desc,
+                )
+            )
         if timesteps is not None:
             kwargs["timesteps"] = torch.tensor(timesteps, dtype=torch.float32, device=self.device)
         return kwargs
