@@ -19,6 +19,40 @@ from .external_lm_warmup import warm_up_external_provider
 GlmClientError = ExternalAIClientError
 
 
+def _build_lyrics_generation_intent(
+    *,
+    caption: str,
+    bpm: Any,
+    audio_duration: Any,
+    key_scale: str,
+    time_signature: str,
+    vocal_language: str,
+    retry: bool,
+) -> str:
+    """Build a compact lyrics-generation request for the active external provider."""
+
+    intent_lines = [
+        (caption or "").strip() or "NO USER INPUT",
+        "",
+        "Write lead-vocal lyrics for this music concept.",
+        "Return singable lyrics with a [Verse 1], [Chorus], [Verse 2] structure.",
+        "Do not return [Instrumental], stage directions, empty tags, or placeholder scaffolds.",
+    ]
+    if bpm not in (None, "", 0):
+        intent_lines.append(f"Preferred BPM: {bpm}")
+    if audio_duration not in (None, "", 0):
+        intent_lines.append(f"Preferred duration seconds: {audio_duration}")
+    if key_scale:
+        intent_lines.append(f"Preferred key: {key_scale}")
+    if time_signature:
+        intent_lines.append(f"Preferred time signature: {time_signature}")
+    if vocal_language and vocal_language != "unknown":
+        intent_lines.append(f"Preferred vocal language: {vocal_language}")
+    if retry:
+        intent_lines.append("Use a different hook and imagery from the previous draft.")
+    return "\n".join(intent_lines)
+
+
 def format_sample_with_external_provider(
     *,
     caption: str,
@@ -110,6 +144,48 @@ def create_sample_with_external_provider(
         timesignature=plan.time_signature,
         instrumental=resolved_instrumental,
         status_message=f"External {profile.label} sample created ({model})",
+        error=None,
+    )
+
+
+def generate_lyrics_from_caption_with_external_provider(
+    *,
+    caption: str,
+    bpm: Any,
+    audio_duration: Any,
+    key_scale: str,
+    time_signature: str,
+    vocal_language: str,
+    timeout_sec: int = 60,
+    debug: bool = False,
+    retry: bool = False,
+) -> Any:
+    """Return a lyric-generation result object via the active external provider."""
+
+    plan, profile, model = request_external_plan(
+        intent=_build_lyrics_generation_intent(
+            caption=caption,
+            bpm=bpm,
+            audio_duration=audio_duration,
+            key_scale=key_scale,
+            time_signature=time_signature,
+            vocal_language=vocal_language,
+            retry=retry,
+        ),
+        timeout_sec=timeout_sec,
+        task_focus="lyrics",
+        debug=debug,
+    )
+    return SimpleNamespace(
+        success=True,
+        caption=plan.caption or caption,
+        lyrics=plan.lyrics,
+        bpm=plan.bpm,
+        duration=plan.duration,
+        keyscale=plan.key_scale,
+        language=plan.vocal_language,
+        timesignature=plan.time_signature,
+        status_message=f"External {profile.label} lyrics generated ({model})",
         error=None,
     )
 
