@@ -59,16 +59,17 @@ def apply_user_metadata_overrides(*, plan: Any, user_metadata: dict[str, Any]) -
     return plan
 
 
-def build_fallback_caption(*, caption: str, user_metadata: dict[str, Any]) -> str:
+def build_fallback_caption(*, caption: str, user_metadata: dict[str, Any] | None) -> str:
     """Build a simple local narrative fallback when the provider keeps echoing input."""
 
+    metadata = user_metadata or {}
     source = (caption or "music piece").strip().rstrip(".")
     if not source:
         source = "music piece"
-    bpm = user_metadata.get("bpm")
-    duration = user_metadata.get("duration")
-    keyscale = user_metadata.get("keyscale")
-    timesignature = user_metadata.get("timesignature")
+    bpm = metadata.get("bpm")
+    duration = metadata.get("duration")
+    keyscale = metadata.get("keyscale")
+    timesignature = metadata.get("timesignature")
 
     parts = [
         f"{source} unfolds as a fuller arranged track with a clear intro, developing verses,",
@@ -92,17 +93,18 @@ def build_format_request_intent(
     *,
     caption: str,
     lyrics: str,
-    user_metadata: dict[str, Any],
+    user_metadata: dict[str, Any] | None,
 ) -> str:
     """Build the format-mode user intent string for external provider requests."""
 
+    metadata = user_metadata or {}
     intent_parts = [
         "Please format and enrich the following for ACE-Step generation.",
         f"Caption: {caption or ''}",
         f"Lyrics: {lyrics or ''}",
     ]
     for key in ("bpm", "duration", "keyscale", "timesignature", "language"):
-        value = user_metadata.get(key)
+        value = metadata.get(key)
         if isinstance(value, str):
             normalized = value.strip()
             if normalized.lower() in {"", "unknown"}:
