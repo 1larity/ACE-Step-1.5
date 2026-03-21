@@ -7,8 +7,10 @@ implementation to focused sub-modules.
 from .llm_analysis_actions import analyze_src_audio, transcribe_audio_codes
 from .llm_format_actions import (
     handle_format_caption,
+    handle_generate_lyrics_from_caption,
     handle_format_lyrics,
     handle_format_sample,
+    handle_generate_random_narrative_caption,
 )
 from .llm_sample_actions import handle_create_sample
 
@@ -16,7 +18,9 @@ __all__ = [
     "analyze_src_audio",
     "handle_create_sample",
     "handle_format_caption",
+    "handle_generate_lyrics_from_caption",
     "handle_format_lyrics",
     "handle_format_sample",
+    "handle_generate_random_narrative_caption",
     "transcribe_audio_codes",
 ]
