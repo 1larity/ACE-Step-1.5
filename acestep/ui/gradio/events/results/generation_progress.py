@@ -20,6 +20,12 @@ from acestep.gpu_config import (
     check_duration_limit,
     check_batch_size_limit,
 )
+from acestep.text_tasks.caption_vocal_presence import ensure_caption_has_global_vocal_presence
+from acestep.text_tasks.external_lm_mode import is_external_lm_active
+from acestep.text_tasks.external_lm_tasks import (
+    ExternalAIClientError,
+    format_sample_with_external_provider,
+)
 from acestep.ui.gradio.i18n import t
 from acestep.ui.gradio.events.generation_handlers import parse_and_validate_timesteps
 from acestep.ui.gradio.events.results.generation_info import (
@@ -31,6 +37,41 @@ from acestep.ui.gradio.events.results.audio_playback_updates import (
 )
 from acestep.ui.gradio.events.results.scoring import calculate_score_handler
 from acestep.ui.gradio.events.results.lrc_utils import lrc_to_vtt_file
+
+
+def _external_cot_should_run(
+    llm_handler,
+    think_checkbox: bool,
+    use_cot_metas: bool,
+    use_cot_caption: bool,
+    use_cot_language: bool,
+) -> bool:
+    """Return whether external AI should satisfy CoT metadata/text flags."""
+    local_lm_initialized = llm_handler.llm_initialized if llm_handler else False
+    wants_cot = think_checkbox or use_cot_metas or use_cot_caption or use_cot_language
+    return is_external_lm_active() and not local_lm_initialized and wants_cot
+
+
+def _build_user_metadata_for_external_format(
+    bpm,
+    audio_duration,
+    key_scale: str,
+    time_signature: str,
+    vocal_language: str,
+) -> dict:
+    """Build external-format metadata payload from current generation fields."""
+    metadata = {}
+    if bpm not in (None, "", "N/A"):
+        metadata["bpm"] = bpm
+    if audio_duration not in (None, "", -1, -1.0):
+        metadata["duration"] = audio_duration
+    if key_scale:
+        metadata["keyscale"] = key_scale
+    if time_signature:
+        metadata["timesignature"] = time_signature
+    if vocal_language and vocal_language != "unknown":
+        metadata["language"] = vocal_language
+    return metadata
 
 
 def generate_with_progress(
@@ -56,8 +97,6 @@ def generate_with_progress(
     fade_out_duration,
     latent_shift,
     latent_rescale,
-    repaint_mode,
-    repaint_strength,
     progress=gr.Progress(track_tqdm=True),
 ):
     """Generate audio with progress tracking.
@@ -94,6 +133,66 @@ def generate_with_progress(
         actual_use_cot_metas = False
         logger.info("[generate_with_progress] Skipping Phase 1 metas COT: is_format_caption=True")
         gr.Info(t("messages.skipping_metas_cot"))
+
+    external_cot_status = ""
+    if _external_cot_should_run(
+        llm_handler=llm_handler,
+        think_checkbox=think_checkbox,
+        use_cot_metas=actual_use_cot_metas,
+        use_cot_caption=use_cot_caption,
+        use_cot_language=use_cot_language,
+    ):
+        try:
+            external_result = format_sample_with_external_provider(
+                caption=captions or "",
+                lyrics=lyrics or "",
+                user_metadata=_build_user_metadata_for_external_format(
+                    bpm=bpm,
+                    audio_duration=audio_duration,
+                    key_scale=key_scale,
+                    time_signature=time_signature,
+                    vocal_language=vocal_language,
+                ),
+            )
+
+            normalized_external_caption = ensure_caption_has_global_vocal_presence(
+                external_result.caption or "",
+                lyrics=external_result.lyrics or lyrics or "",
+                vocal_language=external_result.language or vocal_language,
+            )
+
+            if think_checkbox or use_cot_caption:
+                captions = normalized_external_caption or captions
+                if not (lyrics and str(lyrics).strip()):
+                    lyrics = external_result.lyrics or lyrics
+
+            if think_checkbox or actual_use_cot_metas:
+                if bpm in (None, "", "N/A"):
+                    bpm = external_result.bpm if external_result.bpm is not None else bpm
+                if audio_duration in (None, "", -1, -1.0):
+                    if external_result.duration not in (None, "", "N/A"):
+                        audio_duration = float(external_result.duration)
+                if not key_scale:
+                    key_scale = external_result.keyscale or key_scale
+                if not time_signature:
+                    time_signature = external_result.timesignature or time_signature
+
+            if think_checkbox or use_cot_language:
+                if vocal_language in (None, "", "unknown"):
+                    vocal_language = external_result.language or vocal_language
+
+            external_cot_status = external_result.status_message or "External AI CoT applied."
+            gr.Info(external_cot_status)
+        except ExternalAIClientError as exc:
+            external_cot_status = f"External AI CoT warning: {exc}"
+            gr.Warning(external_cot_status)
+
+        # External provider satisfies language CoT tasks only. Local 5Hz-LM-only
+        # toggles must be disabled to avoid local-LM initialization warnings.
+        think_checkbox = False
+        actual_use_cot_metas = False
+        use_cot_caption = False
+        use_cot_language = False
 
     parsed_timesteps, _has_ts_warn, _ = parse_and_validate_timesteps(custom_timesteps, inference_steps)
     actual_inference_steps = len(parsed_timesteps) - 1 if parsed_timesteps is not None else inference_steps
@@ -149,8 +248,6 @@ def generate_with_progress(
         fade_out_duration=fade_out_duration if fade_out_duration else 0.0,
         latent_shift=latent_shift,
         latent_rescale=latent_rescale,
-        repaint_mode=repaint_mode if repaint_mode else "balanced",
-        repaint_strength=float(repaint_strength) if repaint_strength is not None else 0.5,
     )
 
     if isinstance(seed, str) and seed.strip():
@@ -197,9 +294,12 @@ def generate_with_progress(
     )
 
     if not result.success:
+        status_message = result.status_message
+        if external_cot_status:
+            status_message = f"{external_cot_status}\n{status_message}".strip()
         yield (
             (None,) * 8
-            + (None, generation_info, result.status_message, gr.skip())
+            + (None, generation_info, status_message, gr.skip())
             + (gr.skip(),) * 8  # scores
             + (gr.skip(),) * 8  # codes_display
             + (gr.skip(),) * 8  # details_accordion
