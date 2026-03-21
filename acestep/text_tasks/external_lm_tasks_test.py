@@ -294,6 +294,38 @@ class ExternalLmTasksTests(unittest.TestCase):
         self.assertIn("125 BPM", result.caption)
 
     @patch("acestep.text_tasks.external_lm_tasks.request_external_plan")
+    def test_format_sample_with_external_provider_accepts_missing_user_metadata(
+        self,
+        request_plan_mock,
+    ) -> None:
+        """Formatting should still work when the UI passes no optional metadata."""
+
+        request_plan_mock.return_value = (
+            SimpleNamespace(
+                caption="A broader dream-pop arc blooms into a brighter final lift.",
+                lyrics="",
+                bpm=110,
+                duration=180,
+                key_scale="A minor",
+                time_signature="4/4",
+                vocal_language="en",
+                instrumental=False,
+            ),
+            SimpleNamespace(label="Ollama"),
+            "qwen3:4b",
+        )
+
+        result = format_sample_with_external_provider(
+            caption="dream pop shimmer",
+            lyrics="",
+            user_metadata=None,
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual("A broader dream-pop arc blooms into a brighter final lift.", result.caption)
+        self.assertEqual("A minor", result.keyscale)
+
+    @patch("acestep.text_tasks.external_lm_tasks.request_external_plan")
     def test_create_sample_with_external_provider_preserves_explicit_vocal_request(
         self,
         request_plan_mock,

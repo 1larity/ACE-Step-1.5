@@ -191,6 +191,44 @@ class SecureSecretStoreTests(unittest.TestCase):
 
         self.assertIn("Failed reading secret", str(exc.exception))
 
+    def test_exists_checks_file_backend_path(self) -> None:
+        """File-backed stores should report existence from the encrypted file path."""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            secret_path = Path(tmpdir) / "secret.enc"
+            store = EncryptedSecretStore(
+                secret_path=secret_path,
+                openssl_path="/usr/bin/openssl",
+            )
+            self.assertFalse(store.exists())
+            secret_path.write_text("encrypted", encoding="utf-8")
+            self.assertTrue(store.exists())
+
+    def test_exists_checks_native_keyring_backend(self) -> None:
+        """Native-keyring stores should report existence from the system keyring."""
+
+        fake_keyring = self._fake_keyring_module()
+        captured: dict[tuple[str, str], str] = {}
+
+        def set_password(service: str, username: str, secret: str) -> None:
+            captured[(service, username)] = secret
+
+        def get_password(service: str, username: str) -> str | None:
+            return captured.get((service, username))
+
+        fake_keyring.set_password = set_password
+        fake_keyring.get_password = get_password
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            secret_path = Path(tmpdir) / "openai_api_key.enc"
+            with patch.object(secure_secret_store.sys, "platform", "win32"):
+                with patch.dict(sys.modules, {"keyring": fake_keyring}):
+                    with patch("shutil.which", return_value=None):
+                        store = EncryptedSecretStore(secret_path=secret_path)
+                        self.assertFalse(store.exists())
+                        store.save(secret="test-key", passphrase="")
+                        self.assertTrue(store.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

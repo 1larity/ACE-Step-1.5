@@ -120,6 +120,29 @@ class EncryptedSecretStore:
         except UnicodeDecodeError as exc:
             raise SecretStoreError("Decrypted secret is not valid UTF-8.") from exc
 
+    def exists(self) -> bool:
+        """Return whether a secret already exists for the configured backend."""
+        if not self.uses_native_keyring():
+            return self.secret_path.exists()
+
+        keyring = self._load_keyring_module()
+        if keyring is None:
+            return False
+        try:
+            keyring_error = self._keyring_error_type(keyring)
+        except SecretStoreError:
+            return False
+        try:
+            return (
+                keyring.get_password(
+                    "acestep.external_lm.secret_store",
+                    self._keyring_username(),
+                )
+                is not None
+            )
+        except keyring_error:
+            return False
+
     def _run_openssl(
         self,
         *,

@@ -56,16 +56,17 @@ def format_sample_with_external_provider(
     *,
     caption: str,
     lyrics: str,
-    user_metadata: dict[str, Any],
+    user_metadata: dict[str, Any] | None,
     timeout_sec: int = 60,
     debug: bool = False,
 ) -> Any:
     """Return a FormatSample-like result object via the active external provider."""
 
+    metadata = user_metadata or {}
     request_intent = build_format_request_intent(
         caption=caption,
         lyrics=lyrics,
-        user_metadata=user_metadata,
+        user_metadata=metadata,
     )
     plan, profile, model = request_external_plan(
         intent=request_intent,
@@ -87,11 +88,11 @@ def format_sample_with_external_provider(
                 debug=debug,
             )
         except ExternalAIClientError:
-            plan.caption = build_fallback_caption(caption=caption, user_metadata=user_metadata)
+            plan.caption = build_fallback_caption(caption=caption, user_metadata=metadata)
     if caption_needs_retry(original_caption=caption, generated_caption=plan.caption):
-        plan.caption = build_fallback_caption(caption=caption, user_metadata=user_metadata)
+        plan.caption = build_fallback_caption(caption=caption, user_metadata=metadata)
 
-    plan = apply_user_metadata_overrides(plan=plan, user_metadata=user_metadata)
+    plan = apply_user_metadata_overrides(plan=plan, user_metadata=metadata)
     return SimpleNamespace(
         success=True,
         caption=plan.caption or caption,

@@ -28,7 +28,7 @@ class ExternalLmConfigTests(unittest.TestCase):
         self.assertEqual("ollama", provider)
 
     @patch("acestep.ui.gradio.interfaces.generation_external_lm_config.get_external_provider_profile")
-    @patch("acestep.ui.gradio.interfaces.generation_external_lm_config.gr.Tab")
+    @patch("acestep.ui.gradio.interfaces.generation_external_lm_config.gr.Accordion")
     @patch("acestep.ui.gradio.interfaces.generation_external_lm_config.gr.Markdown")
     @patch("acestep.ui.gradio.interfaces.generation_external_lm_config.gr.Row")
     @patch("acestep.ui.gradio.interfaces.generation_external_lm_config.gr.Column")
@@ -51,7 +51,7 @@ class ExternalLmConfigTests(unittest.TestCase):
         column_mock,
         row_mock,
         markdown_mock,
-        tab_mock,
+        accordion_mock,
         profile_mock,
     ) -> None:
         """Hydration should be scoped to the provider implied by init_params."""
@@ -61,7 +61,7 @@ class ExternalLmConfigTests(unittest.TestCase):
             def __exit__(self, exc_type, exc, tb):
                 return False
 
-        tab_mock.return_value = _Ctx()
+        accordion_mock.return_value = _Ctx()
         row_mock.return_value = _Ctx()
         column_mock.return_value = _Ctx()
         dropdown_mock.return_value = object()
@@ -86,6 +86,11 @@ class ExternalLmConfigTests(unittest.TestCase):
 
         hydrate_mock.assert_called_once_with("ollama")
         profile_mock.assert_called_once_with("ollama")
+        accordion_mock.assert_called_once_with(
+            "🧠 External LM",
+            open=False,
+            elem_classes=["has-info-container"],
+        )
 
 
 if __name__ == "__main__":
