@@ -4,6 +4,7 @@ import gradio as gr
 from loguru import logger
 
 from acestep.constants import MODE_TO_TASK_TYPE
+from acestep.text_tasks.external_lm_mode import is_external_lm_active
 from acestep.ui.gradio.i18n import t
 from .mode_ui_helpers import (
     _compute_automation_updates,
@@ -54,7 +55,7 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
     cover_noise_update = gr.update(visible=is_cover)
 
     # Think checkbox
-    lm_initialized = llm_handler.llm_initialized if llm_handler else False
+    lm_initialized = (llm_handler.llm_initialized if llm_handler else False) or is_external_lm_active()
     if is_extract or is_lego or is_cover or is_repaint:
         think_update = gr.update(interactive=False, value=False, visible=not (is_extract or is_lego))
     elif not lm_initialized:
@@ -136,7 +137,7 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
         gr.update(visible=show_custom_group),              # 1: custom_mode_group
         generate_btn_update,                               # 2: generate_btn
         False,                                             # 3: simple_sample_created
-        gr.update(visible=show_optional, open=False),       # 4: optional_params_accordion
+        gr.Accordion(visible=show_optional, open=False),   # 4: optional_params_accordion
         gr.update(value=task_type, elem_classes=["has-info-container"]),  # 5: task_type
         gr.update(visible=show_src_audio),                 # 6: src_audio_row
         gr.update(visible=show_repainting),                # 7: repainting_group
@@ -165,9 +166,7 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
         repainting_header_update,                          # 30: repainting_header_html
         repainting_start_update,                           # 31: repainting_start
         repainting_end_update,                             # 32: repainting_end
-        gr.skip(),                                         # 33: repaint_mode
-        gr.skip(),                                         # 34: repaint_strength
-        mode,                                              # 35: previous_generation_mode
+        mode,                                              # 33: previous_generation_mode
         gr.update(visible=is_cover),                       # 34: remix_help_group
         gr.update(visible=(is_extract or is_lego)),        # 35: extract_help_group
         gr.update(visible=is_complete),                    # 36: complete_help_group

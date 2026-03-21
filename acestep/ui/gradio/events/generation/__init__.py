@@ -41,15 +41,26 @@ from .llm_actions import (
     handle_create_sample,
     handle_format_sample,
     handle_format_caption,
+    handle_generate_lyrics_from_caption,
     handle_format_lyrics,
+    handle_generate_random_narrative_caption,
     transcribe_audio_codes,
     analyze_src_audio,
+)
+from .external_lm_setup_actions import (
+    check_external_lm_runtime_from_ui,
+    fetch_external_lm_models_from_ui,
+    fetch_external_lm_models_from_ui_with_lm_dropdown,
+    load_external_lm_provider_defaults,
+    load_external_lm_provider_defaults_with_lm_dropdown,
+    save_external_lm_settings_from_ui,
 )
 from .ui_helpers import (
     update_negative_prompt_visibility,
     on_auto_checkbox_change,
     reset_all_auto,
     uncheck_auto_for_populated_fields,
+    sync_vocal_language_after_lyrics_generation,
     update_audio_cover_strength_visibility,
     convert_src_audio_to_codes_wrapper,
     update_instruction_ui,
