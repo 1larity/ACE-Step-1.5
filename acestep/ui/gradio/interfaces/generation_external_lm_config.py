@@ -1,4 +1,4 @@
-"""External LLM configuration-tab builders for generation settings."""
+"""External LLM configuration builders for generation settings."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from acestep.text_tasks.external_lm_providers import (
 
 
 def create_external_lm_config_content(init_params: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Build the dedicated External LLM settings tab content."""
+    """Build the dedicated External LLM settings accordion content."""
     selected_provider = _resolve_initial_provider(init_params)
     hydrate_external_lm_env_from_store(selected_provider)
     provider_profile = get_external_provider_profile(selected_provider)
@@ -37,7 +37,7 @@ def create_external_lm_config_content(init_params: dict[str, Any] | None = None)
         or provider_profile.default_base_url
     )
 
-    with gr.Tab("External LLM"):
+    with gr.Accordion("🧠 External LM", open=False, elem_classes=["has-info-container"]):
         gr.Markdown(
             "Configure provider, protocol, model, endpoint, and credentials for external "
             "language tasks (sample/format/Think-CoT bridge)."
