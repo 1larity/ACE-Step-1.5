@@ -17,6 +17,7 @@ from acestep.text_tasks.external_lm_captioning import (
 from acestep.text_tasks.external_lm_tasks import (
     create_sample_with_external_provider,
     format_sample_with_external_provider,
+    generate_lyrics_from_caption_with_external_provider,
 )
 from acestep.text_tasks.external_lm_warmup import warm_up_external_provider
 
@@ -323,6 +324,79 @@ class ExternalLmTasksTests(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertFalse(result.instrumental)
         self.assertEqual("", result.lyrics)
+
+    @patch("acestep.text_tasks.external_lm_tasks.request_external_plan")
+    def test_generate_lyrics_from_caption_with_external_provider_returns_lyrics_result(
+        self,
+        request_plan_mock,
+    ) -> None:
+        """Lyric generation should expose a CreateSample-like result for UI callers."""
+
+        request_plan_mock.return_value = (
+            SimpleNamespace(
+                caption="A warm duet builds into a moonlit chorus.",
+                lyrics="[Verse 1]\nWe hold the skyline close\n\n[Chorus]\nWe glow tonight",
+                bpm=108,
+                duration=180,
+                key_scale="D minor",
+                time_signature="4/4",
+                vocal_language="en",
+                instrumental=False,
+            ),
+            SimpleNamespace(label="OpenAI"),
+            "gpt-4o-mini",
+        )
+
+        result = generate_lyrics_from_caption_with_external_provider(
+            caption="Warm duet with a moonlit chorus",
+            bpm=108,
+            audio_duration=180,
+            key_scale="D minor",
+            time_signature="4/4",
+            vocal_language="en",
+        )
+
+        self.assertTrue(result.success)
+        self.assertIn("[Verse 1]", result.lyrics)
+        self.assertEqual("D minor", result.keyscale)
+        self.assertEqual("External OpenAI lyrics generated (gpt-4o-mini)", result.status_message)
+
+    @patch("acestep.text_tasks.external_lm_tasks.request_external_plan")
+    def test_generate_lyrics_from_caption_with_external_provider_includes_retry_instruction(
+        self,
+        request_plan_mock,
+    ) -> None:
+        """Retry requests should ask the provider for a different hook and imagery."""
+
+        request_plan_mock.return_value = (
+            SimpleNamespace(
+                caption="A warm duet builds into a moonlit chorus.",
+                lyrics="[Verse 1]\nWe hold the skyline close",
+                bpm=108,
+                duration=180,
+                key_scale="D minor",
+                time_signature="4/4",
+                vocal_language="en",
+                instrumental=False,
+            ),
+            SimpleNamespace(label="OpenAI"),
+            "gpt-4o-mini",
+        )
+
+        generate_lyrics_from_caption_with_external_provider(
+            caption="Warm duet with a moonlit chorus",
+            bpm=108,
+            audio_duration=180,
+            key_scale="D minor",
+            time_signature="4/4",
+            vocal_language="en",
+            retry=True,
+        )
+
+        self.assertEqual(1, request_plan_mock.call_count)
+        request_intent = request_plan_mock.call_args.kwargs["intent"]
+        self.assertIn("Preferred vocal language: en", request_intent)
+        self.assertIn("Use a different hook and imagery from the previous draft.", request_intent)
 
     @patch("acestep.text_tasks.external_lm_http_common.request.urlopen")
     @patch("acestep.text_tasks.external_lm_plan_requests.resolve_external_api_key_for_runtime")
