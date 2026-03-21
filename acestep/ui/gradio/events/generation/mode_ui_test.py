@@ -18,7 +18,7 @@ except Exception as exc:  # pragma: no cover - environment dependency guard
     compute_mode_ui_updates = None
     _IMPORT_ERROR = exc
 
-# Output indices for the two new state-clearing outputs
+# Output indices for the two state-clearing outputs
 _IDX_AUDIO_CODES = 44
 _IDX_SRC_AUDIO = 45
 _IDX_THINK_CHECKBOX = 14
@@ -36,7 +36,7 @@ class ModeUiStateClearingTests(unittest.TestCase):
     """Tests that mode switches clear stale UI state to prevent noise."""
 
     def test_tuple_length(self):
-        """compute_mode_ui_updates should return exactly 44 elements."""
+        """compute_mode_ui_updates should return exactly 46 elements."""
         result = compute_mode_ui_updates("Custom")
         self.assertEqual(len(result), _EXPECTED_TUPLE_LENGTH)
 

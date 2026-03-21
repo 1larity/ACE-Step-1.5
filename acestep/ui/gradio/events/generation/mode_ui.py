@@ -14,7 +14,7 @@ from .mode_ui_helpers import (
 
 
 def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "Custom"):
-    """Return the 44-output mode-switch update tuple for generation UI."""
+    """Return the 46-output mode-switch update tuple for generation UI."""
     task_type = MODE_TO_TASK_TYPE.get(mode, "text2music")
 
     is_simple = (mode == "Simple")
@@ -100,7 +100,10 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
         is_lego, is_repaint,
     )
 
-    # --- Auto checkbox updates (indices 37-41) ---
+    repaint_mode_update = gr.update()
+    repaint_strength_update = gr.update()
+
+    # --- Auto checkbox updates (indices 39-43) ---
     if is_extract or is_lego or leaving_extract_or_lego:
         auto_bpm_update = gr.update(value=True)
         auto_key_update = gr.update(value=True)
@@ -165,19 +168,19 @@ def compute_mode_ui_updates(mode: str, llm_handler=None, previous_mode: str = "C
         repainting_header_update,                          # 30: repainting_header_html
         repainting_start_update,                           # 31: repainting_start
         repainting_end_update,                             # 32: repainting_end
-        gr.skip(),                                         # 33: repaint_mode
-        gr.skip(),                                         # 34: repaint_strength
+        repaint_mode_update,                               # 33: repaint_mode
+        repaint_strength_update,                           # 34: repaint_strength
         mode,                                              # 35: previous_generation_mode
-        gr.update(visible=is_cover),                       # 34: remix_help_group
-        gr.update(visible=(is_extract or is_lego)),        # 35: extract_help_group
-        gr.update(visible=is_complete),                    # 36: complete_help_group
-        auto_bpm_update,                                   # 37: bpm_auto
-        auto_key_update,                                   # 38: key_auto
-        auto_timesig_update,                               # 39: timesig_auto
-        auto_vocal_lang_update,                            # 40: vocal_lang_auto
-        auto_duration_update,                              # 41: duration_auto
-        audio_codes_update,                                # 42: text2music_audio_code_string
-        src_audio_update,                                  # 43: src_audio
+        gr.update(visible=is_cover),                       # 36: remix_help_group
+        gr.update(visible=(is_extract or is_lego)),        # 37: extract_help_group
+        gr.update(visible=is_complete),                    # 38: complete_help_group
+        auto_bpm_update,                                   # 39: bpm_auto
+        auto_key_update,                                   # 40: key_auto
+        auto_timesig_update,                               # 41: timesig_auto
+        auto_vocal_lang_update,                            # 42: vocal_lang_auto
+        auto_duration_update,                              # 43: duration_auto
+        audio_codes_update,                                # 44: text2music_audio_code_string
+        src_audio_update,                                  # 45: src_audio
     )
 
 
