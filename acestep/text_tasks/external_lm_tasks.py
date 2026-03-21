@@ -15,7 +15,6 @@ from .external_lm_captioning import (
 from .external_lm_plan_requests import request_external_plan
 from .external_lm_warmup import warm_up_external_provider
 
-
 GlmClientError = ExternalAIClientError
 
 
