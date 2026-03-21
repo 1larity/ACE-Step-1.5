@@ -13,6 +13,7 @@ from acestep.text_tasks.external_lm_runtime_store import (
     external_lm_settings_path,
     load_all_external_lm_runtime_settings,
     load_external_lm_runtime_settings,
+    load_external_lm_runtime_settings_for_provider,
     save_external_lm_runtime_settings,
 )
 
@@ -47,6 +48,15 @@ class ExternalLmRuntimeStorePersistenceTests(unittest.TestCase):
                         "protocol": "openai_chat",
                         "model": "glm-4.7",
                         "base_url": "https://api.z.ai/api/paas/v4/chat/completions",
+                    },
+                )
+                self.assertEqual(
+                    load_external_lm_runtime_settings_for_provider("openai"),
+                    {
+                        "provider": "openai",
+                        "protocol": "openai_chat",
+                        "model": "gpt-4o-mini",
+                        "base_url": "https://api.openai.com/v1/chat/completions",
                     },
                 )
                 self.assertEqual(

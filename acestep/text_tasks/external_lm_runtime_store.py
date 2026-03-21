@@ -65,6 +65,12 @@ def load_external_lm_runtime_settings(provider: str | None = None) -> dict[str, 
     }
 
 
+def load_external_lm_runtime_settings_for_provider(provider: str) -> dict[str, str] | None:
+    """Load persisted external LM settings for the requested provider."""
+
+    return load_external_lm_runtime_settings(provider)
+
+
 def load_all_external_lm_runtime_settings() -> dict[str, object]:
     """Load the full persisted provider-settings payload."""
 
