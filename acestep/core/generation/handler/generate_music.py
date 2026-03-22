@@ -27,6 +27,38 @@ _DEFAULT_PROGRESS_PHASE_RANGES = {
     "diffusion_end": 0.79,
 }
 
+_MAX_REPAINT_CROSSFADE_FRAMES = 25
+_MAX_REPAINT_WAV_CROSSFADE_SEC = 0.05
+
+
+def _resolve_repaint_config(
+    mode: str = "balanced",
+    strength: float = 0.5,
+) -> Tuple[float, int, float]:
+    """Resolve repaint preservation controls into model/runtime parameters.
+
+    Args:
+        mode: User-facing repaint mode.
+        strength: Balanced-mode preservation slider.
+
+    Returns:
+        Tuple of ``(repaint_injection_ratio, repaint_crossfade_frames,
+        repaint_wav_crossfade_sec)``.
+    """
+    normalized_mode = (mode or "balanced").strip().lower()
+    clamped_strength = max(0.0, min(1.0, float(strength)))
+
+    if normalized_mode == "aggressive":
+        preserve_ratio = 0.0
+    elif normalized_mode == "conservative":
+        preserve_ratio = 1.0
+    else:
+        preserve_ratio = 1.0 - clamped_strength
+
+    repaint_crossfade_frames = int(round(_MAX_REPAINT_CROSSFADE_FRAMES * preserve_ratio))
+    repaint_wav_crossfade_sec = _MAX_REPAINT_WAV_CROSSFADE_SEC * preserve_ratio
+    return preserve_ratio, repaint_crossfade_frames, repaint_wav_crossfade_sec
+
 
 class GenerateMusicMixin:
     """Coordinate request prep, service execution, decode, and payload assembly.
@@ -415,6 +447,12 @@ class GenerateMusicMixin:
             audio_code_string=audio_code_string,
             instruction=instruction,
         )
+        repaint_injection_ratio, resolved_repaint_crossfade_frames, _ = _resolve_repaint_config(
+            repaint_mode,
+            repaint_strength,
+        )
+        if repaint_latent_crossfade_frames != 10:
+            resolved_repaint_crossfade_frames = max(0, int(repaint_latent_crossfade_frames))
 
         if (
             allow_cpu_device_fallback
@@ -586,6 +624,8 @@ class GenerateMusicMixin:
                     cfg_interval_end=cfg_interval_end,
                     shift=shift,
                     infer_method=infer_method,
+                    repaint_crossfade_frames=resolved_repaint_crossfade_frames,
+                    repaint_injection_ratio=repaint_injection_ratio,
                     phase_ranges=phase_ranges,
                 )
                 stage_timings["canary_service_generate_sec"] = time.perf_counter() - canary_start
@@ -685,14 +725,16 @@ class GenerateMusicMixin:
                 guidance_scale=guidance_scale,
                 actual_seed_list=actual_seed_list,
                 audio_cover_strength=audio_cover_strength,
-                cover_noise_strength=cover_noise_strength,
-                use_adg=use_adg,
-                cfg_interval_start=cfg_interval_start,
-                cfg_interval_end=cfg_interval_end,
-                shift=shift,
-                infer_method=infer_method,
-                phase_ranges=phase_ranges,
-            )
+                    cover_noise_strength=cover_noise_strength,
+                    use_adg=use_adg,
+                    cfg_interval_start=cfg_interval_start,
+                    cfg_interval_end=cfg_interval_end,
+                    shift=shift,
+                    infer_method=infer_method,
+                    repaint_crossfade_frames=resolved_repaint_crossfade_frames,
+                    repaint_injection_ratio=repaint_injection_ratio,
+                    phase_ranges=phase_ranges,
+                )
             stage_timings["service_generate_sec"] = time.perf_counter() - service_start
             outputs = service_run["outputs"]
             if isinstance(outputs, dict):
@@ -744,6 +786,8 @@ class GenerateMusicMixin:
                     cfg_interval_end=1.0,
                     shift=shift,
                     infer_method=infer_method,
+                    repaint_crossfade_frames=resolved_repaint_crossfade_frames,
+                    repaint_injection_ratio=repaint_injection_ratio,
                     phase_ranges=phase_ranges,
                 )
                 stage_timings["service_generate_sec"] = (
@@ -798,6 +842,8 @@ class GenerateMusicMixin:
                         cfg_interval_end=1.0,
                         shift=shift,
                         infer_method=fallback_infer_method,
+                        repaint_crossfade_frames=resolved_repaint_crossfade_frames,
+                        repaint_injection_ratio=repaint_injection_ratio,
                         phase_ranges=phase_ranges,
                     )
                     stage_timings["service_generate_sec"] = (

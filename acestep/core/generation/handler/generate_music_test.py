@@ -220,6 +220,22 @@ class GenerateMusicMixinTests(unittest.TestCase):
 
         self.assertEqual(out, host._final_payload)
         self.assertIn("_run_generate_music_service_with_progress", host.calls)
+        self.assertEqual(host.calls["_run_generate_music_service_with_progress"]["repaint_crossfade_frames"], 12)
+        self.assertEqual(host.calls["_run_generate_music_service_with_progress"]["repaint_injection_ratio"], 0.0)
+
+    def test_generate_music_maps_balanced_repaint_strength_into_service_controls(self):
+        """It resolves balanced repaint mode into model repaint parameters."""
+        host = _Host()
+        host.generate_music(
+            captions="cap",
+            lyrics="lyr",
+            repaint_mode="balanced",
+            repaint_strength=0.25,
+        )
+
+        run_kwargs = host.calls["_run_generate_music_service_with_progress"]
+        self.assertEqual(run_kwargs["repaint_crossfade_frames"], 19)
+        self.assertEqual(run_kwargs["repaint_injection_ratio"], 0.75)
 
     def test_generate_music_returns_readiness_error_when_components_missing(self):
         """It short-circuits with readiness payload when required models are missing."""

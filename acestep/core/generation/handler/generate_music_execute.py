@@ -55,6 +55,8 @@ class GenerateMusicExecuteMixin:
         cfg_interval_end: float,
         shift: float,
         infer_method: str,
+        repaint_crossfade_frames: int = 10,
+        repaint_injection_ratio: float = 0.5,
         phase_ranges: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Any]:
         """Invoke ``service_generate`` while relaying progress to the request thread.
@@ -162,6 +164,8 @@ class GenerateMusicExecuteMixin:
                     return_intermediate=service_inputs["should_return_intermediate"],
                     timesteps=timesteps,
                     chunk_mask_modes=service_inputs.get("chunk_mask_modes_batch"),
+                    repaint_crossfade_frames=repaint_crossfade_frames,
+                    repaint_injection_ratio=repaint_injection_ratio,
                 )
             except Exception as exc:
                 _error["exc"] = exc
