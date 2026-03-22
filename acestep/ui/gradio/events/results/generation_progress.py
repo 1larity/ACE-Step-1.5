@@ -97,6 +97,8 @@ def generate_with_progress(
     fade_out_duration,
     latent_shift,
     latent_rescale,
+    repaint_mode,
+    repaint_strength,
     progress=gr.Progress(track_tqdm=True),
 ):
     """Generate audio with progress tracking.
@@ -248,6 +250,8 @@ def generate_with_progress(
         fade_out_duration=fade_out_duration if fade_out_duration else 0.0,
         latent_shift=latent_shift,
         latent_rescale=latent_rescale,
+        repaint_mode=repaint_mode,
+        repaint_strength=repaint_strength,
     )
 
     if isinstance(seed, str) and seed.strip():
