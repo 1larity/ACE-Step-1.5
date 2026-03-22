@@ -1104,6 +1104,10 @@ class GenerateMusicMixin:
                 seed_value_for_ui=seed_value_for_ui,
                 actual_batch_size=actual_batch_size,
                 progress=progress,
+                source_wavs=service_inputs.get("target_wavs_tensor"),
+                repainting_starts=service_inputs.get("repainting_start_batch"),
+                repainting_ends=service_inputs.get("repainting_end_batch"),
+                repaint_wav_crossfade_sec=repaint_wav_crossfade_sec,
             )
             # Clear GPU tensor references from the mutable outputs dict so
             # accelerator memory is reclaimable before the next generation.

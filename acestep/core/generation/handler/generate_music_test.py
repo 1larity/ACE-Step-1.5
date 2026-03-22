@@ -237,6 +237,33 @@ class GenerateMusicMixinTests(unittest.TestCase):
         self.assertEqual(run_kwargs["repaint_crossfade_frames"], 19)
         self.assertEqual(run_kwargs["repaint_injection_ratio"], 0.75)
 
+    def test_generate_music_forwards_waveform_repaint_inputs_to_payload_builder(self):
+        """It forwards waveform splice inputs into the final payload builder."""
+        host = _Host()
+        host._prepare_reference_and_source_audio = lambda **kwargs: (
+            [[torch.zeros(2, 10)]],
+            torch.ones(2, 9600),
+            None,
+        )
+        host._prepare_generate_music_service_inputs = lambda **kwargs: {
+            "should_return_intermediate": True,
+            "target_wavs_tensor": torch.ones(1, 2, 9600) * 5.0,
+            "repainting_start_batch": [0.05],
+            "repainting_end_batch": [0.15],
+        }
+
+        host.generate_music(
+            captions="cap",
+            lyrics="lyr",
+            repaint_wav_crossfade_sec=0.02,
+        )
+
+        build_kwargs = host.calls["_build_generate_music_success_payload"]
+        self.assertEqual(build_kwargs["repaint_wav_crossfade_sec"], 0.02)
+        self.assertIsNotNone(build_kwargs["source_wavs"])
+        self.assertEqual(build_kwargs["repainting_starts"], [0.05])
+        self.assertEqual(build_kwargs["repainting_ends"], [0.15])
+
     def test_generate_music_returns_readiness_error_when_components_missing(self):
         """It short-circuits with readiness payload when required models are missing."""
         host = _Host()
