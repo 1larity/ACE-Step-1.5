@@ -4,6 +4,10 @@ from typing import Any, Dict
 
 from loguru import logger
 
+from acestep.core.generation.handler.repaint_waveform_splice import (
+    apply_repaint_waveform_splice,
+)
+
 
 class GenerateMusicPayloadMixin:
     """Build audio/metadata payload structures returned by ``generate_music``."""
@@ -17,6 +21,10 @@ class GenerateMusicPayloadMixin:
         seed_value_for_ui: int,
         actual_batch_size: int,
         progress: Any,
+        source_wavs=None,
+        repainting_starts=None,
+        repainting_ends=None,
+        repaint_wav_crossfade_sec: float = 0.0,
     ) -> Dict[str, Any]:
         """Assemble final success response from decoded tensors and model outputs.
 
@@ -28,6 +36,10 @@ class GenerateMusicPayloadMixin:
             seed_value_for_ui: Seed value displayed in UI outputs.
             actual_batch_size: Effective generation batch size.
             progress: Optional progress callback.
+            source_wavs: Optional source-audio tensor aligned to repaint output length.
+            repainting_starts: Optional batch repaint start times in seconds.
+            repainting_ends: Optional batch repaint end times in seconds.
+            repaint_wav_crossfade_sec: Optional waveform splice crossfade duration.
 
         Returns:
             Dict[str, Any]: Standard success payload returned by ``generate_music``.
@@ -35,6 +47,20 @@ class GenerateMusicPayloadMixin:
         logger.info("[generate_music] VAE decode completed. Preparing audio tensors...")
         if progress:
             progress(0.99, desc="Preparing audio data...")
+
+        if (
+            source_wavs is not None
+            and repainting_starts is not None
+            and repainting_ends is not None
+        ):
+            pred_wavs = apply_repaint_waveform_splice(
+                pred_wavs=pred_wavs,
+                src_wavs=source_wavs,
+                repainting_starts=repainting_starts,
+                repainting_ends=repainting_ends,
+                sample_rate=self.sample_rate,
+                crossfade_duration=max(0.0, float(repaint_wav_crossfade_sec)),
+            )
 
         audio_tensors = []
         for index in range(actual_batch_size):

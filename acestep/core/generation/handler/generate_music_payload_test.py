@@ -107,6 +107,33 @@ class GenerateMusicPayloadMixinTests(unittest.TestCase):
         self.assertEqual(payload["extra_outputs"]["pred_latents"].device.type, "cpu")
         self.assertEqual(progress_calls[0][0], 0.99)
 
+    def test_build_success_payload_applies_repaint_waveform_splice_when_requested(self):
+        """It splices source audio back into preserved repaint regions."""
+        host = _Host()
+        pred_wavs = torch.ones(1, 2, 9600) * 2.0
+        src_wavs = torch.ones(1, 2, 9600) * 5.0
+
+        payload = host._build_generate_music_success_payload(
+            outputs={},
+            pred_wavs=pred_wavs,
+            pred_latents_cpu=torch.ones(1, 4, 3),
+            time_costs={"total_time_cost": 2.0},
+            seed_value_for_ui=3,
+            actual_batch_size=1,
+            progress=None,
+            source_wavs=src_wavs,
+            repainting_starts=[0.05],
+            repainting_ends=[0.15],
+            repaint_wav_crossfade_sec=0.0,
+        )
+
+        audio_tensor = payload["audios"][0]["tensor"]
+        start = int(0.05 * 48000)
+        end = int(0.15 * 48000)
+        torch.testing.assert_close(audio_tensor[:, :start], src_wavs[0, :, :start])
+        torch.testing.assert_close(audio_tensor[:, start:end], pred_wavs[0, :, start:end])
+        torch.testing.assert_close(audio_tensor[:, end:], src_wavs[0, :, end:])
+
     def test_build_success_payload_handles_missing_optional_outputs_without_progress(self):
         """It handles absent optional output keys and no progress callback."""
         host = _Host()
@@ -197,4 +224,3 @@ class GenerateMusicPayloadMixinTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
