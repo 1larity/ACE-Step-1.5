@@ -27,12 +27,20 @@ class VaeDecodeChunksMixin:
             per_sample_results = []
             for b_idx in range(bsz):
                 single = latents[b_idx : b_idx + 1]
+                child_progress_callback = None
+                if callable(progress_callback):
+                    def child_progress_callback(current, total, *, _batch_idx=b_idx):
+                        """Scale per-sample decode progress into batch-wide progress."""
+                        safe_total = max(1.0, float(total))
+                        sample_ratio = min(1.0, max(0.0, float(current) / safe_total))
+                        progress_callback(_batch_idx + sample_ratio, bsz)
+
                 decoded = self._tiled_decode_inner(
                     single,
                     chunk_size,
                     overlap,
                     offload_wav_to_cpu,
-                    progress_callback=progress_callback,
+                    progress_callback=child_progress_callback,
                 )
                 per_sample_results.append(decoded.cpu() if decoded.device.type != "cpu" else decoded)
                 self._empty_cache()
@@ -52,6 +60,8 @@ class VaeDecodeChunksMixin:
             logger.warning(
                 f"[tiled_decode] Reduced overlap from {overlap} to {effective_overlap} for chunk_size={chunk_size}"
             )
+        if chunk_size - 2 * effective_overlap <= 0:
+            effective_overlap = max(1, (chunk_size - 1) // 2)
         overlap = effective_overlap
 
         if latent_frames <= chunk_size:
