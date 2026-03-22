@@ -206,6 +206,21 @@ class GenerateMusicMixinTests(unittest.TestCase):
         self.assertEqual(host.calls["_run_generate_music_service_with_progress"]["guidance_scale"], 6.5)
         self.assertEqual(host.calls["_prepare_generate_music_decode_state"]["infer_steps_for_progress"], 8)
 
+    def test_generate_music_accepts_repaint_controls_from_public_api(self):
+        """It accepts repaint controls exposed by the UI/API contract."""
+        host = _Host()
+        out = host.generate_music(
+            captions="cap",
+            lyrics="lyr",
+            repaint_latent_crossfade_frames=12,
+            repaint_wav_crossfade_sec=0.2,
+            repaint_mode="aggressive",
+            repaint_strength=0.3,
+        )
+
+        self.assertEqual(out, host._final_payload)
+        self.assertIn("_run_generate_music_service_with_progress", host.calls)
+
     def test_generate_music_returns_readiness_error_when_components_missing(self):
         """It short-circuits with readiness payload when required models are missing."""
         host = _Host()
