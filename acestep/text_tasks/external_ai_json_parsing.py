@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from typing import Any
 
@@ -36,7 +37,8 @@ def iter_json_candidates(content: str) -> list[str]:
 
     normalized = normalize_model_content(content)
     candidates: list[str] = []
-    for candidate in [extract_json_block(normalized), *extract_balanced_json_objects(normalized)]:
+    balanced_candidates = extract_balanced_json_objects(normalized)
+    for candidate in [*balanced_candidates, extract_json_block(normalized)]:
         cleaned = candidate.strip()
         if not cleaned:
             continue
@@ -73,16 +75,20 @@ def extract_balanced_json_objects(content: str) -> list[str]:
                 in_string = False
                 escape = False
             continue
-        if escape:
-            escape = False
-            continue
-        if char == "\\":
-            escape = True
-            continue
-        if char == '"':
-            in_string = not in_string
-            continue
+
         if in_string:
+            if escape:
+                escape = False
+                continue
+            if char == "\\":
+                escape = True
+                continue
+            if char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
             continue
         if char == "{":
             depth += 1
@@ -116,11 +122,10 @@ def extract_json_block(content: str) -> str:
     if fenced:
         return fenced.group(1)
 
-    first = content.find("{")
-    last = content.rfind("}")
-    if first == -1 or last == -1 or last <= first:
-        return content
-    return content[first : last + 1]
+    balanced_objects = extract_balanced_json_objects(content)
+    if balanced_objects:
+        return balanced_objects[0]
+    return content
 
 
 def extract_labelled_plan_fields(content: str) -> dict[str, Any]:
@@ -176,12 +181,15 @@ def to_bool(value: Any) -> bool:
 
 
 def to_int(value: Any) -> int | None:
-    """Coerce optional integer values."""
+    """Coerce optional integer values using nearest-integer rounding."""
 
     if value in (None, "", "N/A"):
         return None
     try:
-        return int(float(value))
+        numeric_value = float(value)
+        if not math.isfinite(numeric_value):
+            return None
+        return int(round(numeric_value))
     except (TypeError, ValueError):
         return None
 

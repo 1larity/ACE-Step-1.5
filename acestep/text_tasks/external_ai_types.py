@@ -24,7 +24,7 @@ class ExternalAIPlan:
     instrumental: bool
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a serializable dictionary view of the plan."""
+        """Return a serializable plan view with both canonical and runtime metadata keys."""
 
         payload = asdict(self)
         payload["keyscale"] = payload["key_scale"]

@@ -42,6 +42,15 @@ class ExternalAIResponseParsingTests(unittest.TestCase):
         self.assertEqual(plan.key_scale, "C Major")
         self.assertEqual(plan.time_signature, "4/4")
 
+    def test_parse_plan_from_content_rounds_decimal_bpm_values(self) -> None:
+        """Decimal BPM values should round instead of silently truncating."""
+
+        plan = parse_plan_from_content(
+            '{"caption":"Glow","lyrics":"line","bpm":"118.7","instrumental":false}'
+        )
+
+        self.assertEqual(plan.bpm, 119)
+
     def test_extract_protocol_message_content_rejects_non_mapping_openai_message(self) -> None:
         """OpenAI-style parsing should reject malformed non-dict message payloads."""
 

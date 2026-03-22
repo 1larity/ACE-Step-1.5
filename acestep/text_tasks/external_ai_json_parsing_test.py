@@ -64,6 +64,15 @@ class ExternalAIJsonParsingTests(unittest.TestCase):
 
         self.assertEqual(block, '{"caption": "Neon skyline", "bpm": 118}')
 
+    def test_extract_json_block_returns_first_balanced_object_when_multiple_exist(self) -> None:
+        """Loose brace fallback should not greedily merge multiple JSON objects."""
+
+        block = extract_json_block(
+            'preface {"caption":"Neon skyline"} bridge {"caption":"Night drive"} trailer'
+        )
+
+        self.assertEqual(block, '{"caption":"Neon skyline"}')
+
     def test_load_plan_json_object_accepts_multiline_lyrics_in_labelled_text(self) -> None:
         """Labelled-field fallback should keep multiline lyrics intact."""
 
