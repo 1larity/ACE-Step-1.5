@@ -159,7 +159,11 @@ def _load_passphrase_from_keyring(*, service: str, username: str) -> str | None:
             logger.debug("Failed to retrieve password from keyring: {}", exc)
             return None
     else:
-        value = keyring.get_password(service, username)
+        try:
+            value = keyring.get_password(service, username)
+        except Exception as exc:
+            logger.debug("Failed to retrieve password from keyring: {}", exc)
+            return None
     return value if value else None
 
 

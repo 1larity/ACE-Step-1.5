@@ -103,6 +103,23 @@ class PassphraseStoreTests(unittest.TestCase):
 
         self.assertEqual(resolved, "  keyring-secret  ")
 
+    def test_resolve_ignores_untyped_keyring_backend_errors(self) -> None:
+        """Backends without ``KeyringError`` should still degrade cleanly on read failure."""
+
+        fake_keyring = types.SimpleNamespace()
+
+        def get_password(*_args):
+            raise RuntimeError("backend blew up")
+
+        fake_keyring.get_password = get_password
+
+        with patch.object(passphrase_store.shutil, "which", return_value=None):
+            with patch.dict(sys.modules, {"keyring": fake_keyring}):
+                with patch.dict(os.environ, {}, clear=True):
+                    resolved = passphrase_store.resolve_runtime_passphrase()
+
+        self.assertIsNone(resolved)
+
     def test_resolve_uses_default_secret_service_when_env_values_are_whitespace(self) -> None:
         """Whitespace-only secret service env vars should fall back to the defaults."""
 
