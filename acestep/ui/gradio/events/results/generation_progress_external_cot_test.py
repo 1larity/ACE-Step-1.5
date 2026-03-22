@@ -64,6 +64,8 @@ def _build_call_kwargs() -> dict:
         "fade_out_duration": 0.0,
         "latent_shift": 0.0,
         "latent_rescale": 1.0,
+        "repaint_mode": "balanced",
+        "repaint_strength": 0.5,
     }
 
     kwargs = {}
@@ -150,6 +152,8 @@ class GenerationProgressExternalCotTests(unittest.TestCase):
         self.assertEqual(110, params.bpm)
         self.assertEqual("D minor", params.keyscale)
         self.assertEqual("en", params.vocal_language)
+        self.assertEqual("balanced", params.repaint_mode)
+        self.assertEqual(0.5, params.repaint_strength)
         self.assertEqual(1, len(outputs))
         self.assertIn("External AI", outputs[0][10])
 
