@@ -19,6 +19,7 @@ from .generation_service_config_toggles import (
     build_service_init_controls,
     build_service_toggles,
 )
+from .generation_external_lm_config import create_external_lm_config_content
 
 
 def create_service_config_content(
@@ -87,6 +88,7 @@ def create_service_config_content(
             service_pre_initialized=service_pre_initialized,
             params=params,
         )
+        external_lm_components = create_external_lm_config_content(init_params)
 
     result: dict[str, Any] = {"service_config_accordion": service_config_accordion}
     result.update(language_controls)
@@ -101,6 +103,7 @@ def create_service_config_content(
     result.update(lm_backend_controls)
     result.update(toggle_controls)
     result.update(init_controls)
+    result.update(external_lm_components)
     result["gpu_config"] = defaults["gpu_config"]
     return result
 

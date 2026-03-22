@@ -157,6 +157,7 @@ class GenerationDecompositionContractTests(unittest.TestCase):
             ("generation_service_config_rows.py", "build_lm_backend_controls"),
             ("generation_service_config_toggles.py", "build_service_toggles"),
             ("generation_service_config_toggles.py", "build_service_init_controls"),
+            ("generation_external_lm_config.py", "create_external_lm_config_content"),
         ]
         for module_name, function_name in key_sources:
             produced_keys |= collect_return_dict_keys(module_name, function_name)
