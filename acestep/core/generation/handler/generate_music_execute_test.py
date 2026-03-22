@@ -2,7 +2,10 @@
 
 import unittest
 
+import torch
+
 from acestep.core.generation.handler.generate_music_execute import GenerateMusicExecuteMixin
+from acestep.core.generation.handler.service_generate_execute import ServiceGenerateExecuteMixin
 
 
 class _Host(GenerateMusicExecuteMixin):
@@ -161,6 +164,44 @@ class GenerateMusicExecuteMixinTests(unittest.TestCase):
         values_only = [value for value, _ in progress_values]
         self.assertTrue(any(abs(value - 0.27) < 0.05 for value in values_only))
         self.assertTrue(any(abs(value - 0.52) < 0.08 for value in values_only))
+
+class _ServiceHost(ServiceGenerateExecuteMixin):
+    """Minimal host for service processed-data unpacking tests."""
+
+
+class ServiceGenerateExecuteMixinTests(unittest.TestCase):
+    """Verify processed batch unpacking for service generation."""
+
+    def test_unpack_service_processed_data_accepts_repaint_mask(self):
+        """It unpacks the repaint mask added by batch preprocessing."""
+        host = _ServiceHost()
+        processed_data = (
+            ["k1"],
+            ["text"],
+            torch.zeros(1, 4, 4),
+            torch.zeros(1, 4, 4),
+            torch.zeros(1, 4),
+            torch.ones(1, 4, dtype=torch.bool),
+            torch.zeros(1, 4),
+            torch.ones(1, 4, dtype=torch.bool),
+            torch.ones(1, 4, dtype=torch.bool),
+            torch.zeros(1, 4),
+            torch.tensor([0], dtype=torch.long),
+            torch.ones(1, 4, 4),
+            [("full", 0, 4)],
+            torch.tensor([True]),
+            None,
+            torch.ones(1, 2, dtype=torch.long),
+            None,
+            None,
+            None,
+            torch.tensor([[True, False, True, False]], dtype=torch.bool),
+        )
+
+        payload = host._unpack_service_processed_data(processed_data)
+
+        self.assertIn("repaint_mask", payload)
+        self.assertTrue(torch.equal(payload["repaint_mask"], processed_data[-1]))
 
 
 if __name__ == "__main__":

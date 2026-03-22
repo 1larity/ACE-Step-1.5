@@ -32,6 +32,7 @@ class ServiceGenerateExecuteMixin:
             precomputed_lm_hints_25Hz,
             non_cover_text_hidden_states,
             non_cover_text_attention_masks,
+            repaint_mask,
         ) = processed_data
         return {
             "keys": keys,
@@ -51,6 +52,7 @@ class ServiceGenerateExecuteMixin:
             "precomputed_lm_hints_25Hz": precomputed_lm_hints_25Hz,
             "non_cover_text_hidden_states": non_cover_text_hidden_states,
             "non_cover_text_attention_masks": non_cover_text_attention_masks,
+            "repaint_mask": repaint_mask,
         }
 
     def _resolve_service_seed_param(self, seed_list: Optional[List[int]]) -> Any:
@@ -73,6 +75,8 @@ class ServiceGenerateExecuteMixin:
         cfg_interval_end: float,
         shift: float,
         timesteps: Optional[List[float]],
+        repaint_crossfade_frames: int,
+        repaint_injection_ratio: float,
     ) -> Dict[str, Any]:
         """Build kwargs passed to model generation backends."""
         disable_tqdm = bool(getattr(self, "disable_tqdm", False))
@@ -98,6 +102,10 @@ class ServiceGenerateExecuteMixin:
             "precomputed_lm_hints_25Hz": payload["precomputed_lm_hints_25Hz"],
             "audio_cover_strength": audio_cover_strength,
             "cover_noise_strength": cover_noise_strength,
+            "repaint_mask": payload["repaint_mask"],
+            "clean_src_latents": payload["src_latents"],
+            "repaint_crossfade_frames": repaint_crossfade_frames,
+            "repaint_injection_ratio": repaint_injection_ratio,
             "infer_method": infer_method,
             "infer_steps": infer_steps,
             "diffusion_guidance_sale": guidance_scale,
