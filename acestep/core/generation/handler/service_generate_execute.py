@@ -75,8 +75,8 @@ class ServiceGenerateExecuteMixin:
         cfg_interval_end: float,
         shift: float,
         timesteps: Optional[List[float]],
-        repaint_crossfade_frames: int,
-        repaint_injection_ratio: float,
+        repaint_crossfade_frames: int = 0,
+        repaint_injection_ratio: float = 0.0,
     ) -> Dict[str, Any]:
         """Build kwargs passed to model generation backends."""
         disable_tqdm = bool(getattr(self, "disable_tqdm", False))
@@ -102,7 +102,7 @@ class ServiceGenerateExecuteMixin:
             "precomputed_lm_hints_25Hz": payload["precomputed_lm_hints_25Hz"],
             "audio_cover_strength": audio_cover_strength,
             "cover_noise_strength": cover_noise_strength,
-            "repaint_mask": payload["repaint_mask"],
+            "repaint_mask": payload.get("repaint_mask"),
             "clean_src_latents": payload["src_latents"],
             "repaint_crossfade_frames": repaint_crossfade_frames,
             "repaint_injection_ratio": repaint_injection_ratio,
