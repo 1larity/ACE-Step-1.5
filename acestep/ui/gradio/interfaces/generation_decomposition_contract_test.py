@@ -82,6 +82,7 @@ class GenerationDecompositionContractTests(unittest.TestCase):
                     call_names.append(name)
 
         self.assertIn("create_service_config_content", call_names)
+        self.assertIn("create_external_lm_config_content", call_names)
         self.assertIn("build_lora_controls", call_names)
         self.assertIn("build_dit_controls", call_names)
         self.assertIn("build_lm_controls", call_names)
