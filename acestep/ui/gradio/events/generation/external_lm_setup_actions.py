@@ -9,7 +9,10 @@ import gradio as gr
 
 from acestep.text_tasks.external_lm_model_discovery import ExternalModelDiscoveryError, discover_external_models
 from acestep.text_tasks.external_lm_mode import get_external_lm_choices, resolve_external_api_key_for_runtime
-from acestep.text_tasks.external_lm_providers import build_external_model_choice, get_external_provider_profile
+from acestep.text_tasks.external_lm_providers import (
+    build_external_model_choice,
+    get_external_provider_profile,
+)
 from acestep.text_tasks.external_lm_runtime_store import load_external_lm_runtime_settings_for_provider, save_external_lm_runtime_settings
 from acestep.text_tasks.passphrase_store import EXTERNAL_AI_SECRET_SERVICE, EXTERNAL_AI_SECRET_USERNAME, resolve_runtime_passphrase, store_runtime_passphrase
 from acestep.text_tasks.secure_secret_store import EncryptedSecretStore, SecretStoreError
@@ -32,7 +35,15 @@ def load_external_lm_provider_defaults(provider: str) -> tuple[dict, dict, dict,
         load_external_lm_runtime_settings_for_provider=load_external_lm_runtime_settings_for_provider,
         as_markdown_status=_as_markdown_status,
     )
-    return gr.update(value=protocol), gr.update(choices=choices, value=model), gr.update(value=base_url), status
+    return (
+        gr.update(value=protocol),
+        gr.update(choices=choices, value=model),
+        gr.update(
+            choices=list(get_external_provider_profile(provider).base_url_presets),
+            value=base_url,
+        ),
+        status,
+    )
 
 
 def load_external_lm_provider_defaults_with_lm_dropdown(provider: str, llm_handler: Any | None = None) -> tuple[dict, dict, dict, str, dict]:

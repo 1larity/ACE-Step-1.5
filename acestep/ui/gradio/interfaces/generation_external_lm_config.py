@@ -69,10 +69,13 @@ def create_external_lm_config_content(init_params: dict[str, Any] | None = None)
                 )
                 external_lm_fetch_models_btn = gr.Button("Fetch Models", size="sm")
             with gr.Column(scale=1):
-                external_lm_base_url_input = gr.Textbox(
+                external_lm_base_url_input = gr.Dropdown(
                     label="Base URL",
+                    choices=list(provider_profile.base_url_presets),
                     value=base_url_value,
-                    placeholder="Chat endpoint URL for selected protocol",
+                    allow_custom_value=True,
+                    info="Choose a provider preset or type a custom chat endpoint URL.",
+                    elem_classes=["has-info-container"],
                 )
         with gr.Row():
             external_lm_api_key_input = gr.Textbox(

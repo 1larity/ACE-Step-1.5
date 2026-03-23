@@ -36,6 +36,10 @@ class ExternalLmSetupActionsTests(unittest.TestCase):
         self.assertEqual("gpt-4o-mini", model_update.get("value"))
         self.assertEqual(["gpt-4o-mini"], model_update.get("choices"))
         self.assertEqual("https://api.openai.com/v1/chat/completions", base_url_update.get("value"))
+        self.assertIn(
+            ("OpenAI chat completions", "https://api.openai.com/v1/chat/completions"),
+            base_url_update.get("choices"),
+        )
         self.assertIn("Provider: OpenAI", status)
         self.assertNotIn("Coding Plan tip", status)
 
@@ -66,6 +70,10 @@ class ExternalLmSetupActionsTests(unittest.TestCase):
         self.assertEqual(
             "http://127.0.0.1:11434/v1/chat/completions",
             base_url_update.get("value"),
+        )
+        self.assertIn(
+            ("Local Ollama", "http://127.0.0.1:11434/v1/chat/completions"),
+            base_url_update.get("choices"),
         )
         self.assertIn("Loaded saved provider preferences.", status)
 
