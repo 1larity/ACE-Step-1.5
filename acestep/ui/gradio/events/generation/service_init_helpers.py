@@ -10,7 +10,7 @@ import gradio as gr
 import torch
 from loguru import logger
 
-from acestep.gpu_config import find_best_lm_model_on_disk, get_gpu_device_name, get_gpu_config_for_tier, is_lm_model_size_allowed, set_global_gpu_config, GPU_TIER_CONFIGS, GPU_TIER_LABELS
+from acestep.gpu_config import find_best_lm_model_on_disk, get_gpu_device_name, get_gpu_config_for_tier, is_lm_model_size_allowed, resolve_lm_backend, set_global_gpu_config, GPU_TIER_CONFIGS, GPU_TIER_LABELS
 from acestep.ui.gradio.i18n import t
 from .model_config import get_model_type_ui_settings, is_pure_base_model
 
@@ -47,10 +47,11 @@ def resolve_local_lm_request(*, gpu_config: Any, init_llm: bool, lm_model_path: 
             logger.warning(
                 f"LM model {lm_model_path} is not in the recommended list for tier {gpu_config.tier} (recommended: {gpu_config.available_lm_models}). Proceeding with user selection; this may cause high VRAM usage or OOM."
             )
-        if gpu_config.lm_backend_restriction == "pt_mlx_only" and backend == "vllm":
-            backend = gpu_config.recommended_backend
+        resolved_backend = resolve_lm_backend(backend, gpu_config)
+        if resolved_backend != backend:
+            backend = resolved_backend
             logger.warning(
-                f"vllm backend not supported for tier {gpu_config.tier} (VRAM too low for KV cache), falling back to {backend}"
+                f"Requested LM backend is not supported for tier {gpu_config.tier} on this hardware, falling back to {backend}"
             )
     return should_initialize_local_lm, lm_device, backend
 
@@ -104,7 +105,12 @@ def build_tier_updates(*, selected_tier: str, all_disk_models: list[str]) -> tup
     new_config = get_gpu_config_for_tier(selected_tier)
     set_global_gpu_config(new_config)
     logger.info(f"Tier manually changed to {selected_tier} - updating UI defaults")
-    available_backends = ["pt", "mlx"] if new_config.lm_backend_restriction == "pt_mlx_only" else ["vllm", "pt", "mlx"]
+    if new_config.lm_backend_restriction == "pt_only":
+        available_backends = ["pt"]
+    elif new_config.lm_backend_restriction == "pt_mlx_only":
+        available_backends = ["pt", "mlx"]
+    else:
+        available_backends = ["vllm", "pt", "mlx"]
     recommended_backend = new_config.recommended_backend if new_config.recommended_backend in available_backends else available_backends[0]
     recommended_lm = new_config.recommended_lm_model
     default_lm_model = find_best_lm_model_on_disk(recommended_lm, all_disk_models)

@@ -145,7 +145,7 @@ def main():
         and gpu_memory_gb > 0
         and gpu_memory_gb < VRAM_AUTO_OFFLOAD_THRESHOLD_GB
     )
-    _default_backend = "mlx" if _is_mac else "vllm"
+    _default_backend = gpu_config.recommended_backend
 
     # Print GPU configuration info
     print(f"\n{'=' * 60}")
