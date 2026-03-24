@@ -65,6 +65,7 @@ def require_message_pair(messages: Sequence[Any]) -> tuple[dict[str, str], dict[
         or not system_message.get("role", "").strip()
         or not isinstance(user_message.get("role"), str)
         or not user_message.get("role", "").strip()
+        or
         not isinstance(system_content, str)
         or system_content == ""
         or not isinstance(user_content, str)
