@@ -65,6 +65,12 @@ def load_external_lm_runtime_settings(provider: str | None = None) -> dict[str, 
     }
 
 
+def load_external_lm_runtime_settings_for_provider(provider: str) -> dict[str, str] | None:
+    """Load persisted external LM settings for the requested provider."""
+
+    return load_external_lm_runtime_settings(provider)
+
+
 def load_all_external_lm_runtime_settings() -> dict[str, object]:
     """Load the full persisted provider-settings payload."""
 
@@ -78,7 +84,7 @@ def load_all_external_lm_runtime_settings() -> dict[str, object]:
     return _normalize_runtime_settings_payload(parsed)
 
 
-def hydrate_external_lm_env_from_store() -> bool:
+def hydrate_external_lm_env_from_store(provider: str | None = None) -> bool:
     """Populate missing runtime env vars from persisted external LM settings.
 
     This mutates process-wide environment variables and is intended for early,
@@ -89,7 +95,9 @@ def hydrate_external_lm_env_from_store() -> bool:
     resolved provider is ``zai``. Returns ``True`` when any env var was set.
     """
 
-    requested_provider = os.getenv("ACESTEP_EXTERNAL_LM_PROVIDER", "")
+    requested_provider = (provider or "").strip().lower() or os.getenv(
+        "ACESTEP_EXTERNAL_LM_PROVIDER", ""
+    )
     settings = load_external_lm_runtime_settings(requested_provider or None)
     if not settings:
         return False

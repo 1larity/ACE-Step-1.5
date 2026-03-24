@@ -82,6 +82,7 @@ class GenerationDecompositionContractTests(unittest.TestCase):
                     call_names.append(name)
 
         self.assertIn("create_service_config_content", call_names)
+        self.assertIn("create_external_lm_config_content", call_names)
         self.assertIn("build_lora_controls", call_names)
         self.assertIn("build_dit_controls", call_names)
         self.assertIn("build_lm_controls", call_names)
@@ -157,6 +158,7 @@ class GenerationDecompositionContractTests(unittest.TestCase):
             ("generation_service_config_rows.py", "build_lm_backend_controls"),
             ("generation_service_config_toggles.py", "build_service_toggles"),
             ("generation_service_config_toggles.py", "build_service_init_controls"),
+            ("generation_external_lm_config.py", "create_external_lm_config_content"),
         ]
         for module_name, function_name in key_sources:
             produced_keys |= collect_return_dict_keys(module_name, function_name)

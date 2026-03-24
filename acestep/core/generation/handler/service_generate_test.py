@@ -145,6 +145,20 @@ class ServiceGenerateMixinTests(unittest.TestCase):
         self.assertEqual(execute_kwargs["shift"], 1.3)
         self.assertEqual(execute_kwargs["audio_cover_strength"], 0.7)
 
+    def test_service_generate_forwards_repaint_runtime_controls(self):
+        """It forwards repaint tuning controls into generation kwargs."""
+        host = _Host()
+        host.service_generate(
+            captions="cap",
+            lyrics="lyr",
+            repaint_crossfade_frames=14,
+            repaint_injection_ratio=0.25,
+        )
+
+        build_kwargs = host.calls["_build_service_generate_kwargs"]
+        self.assertEqual(build_kwargs["repaint_crossfade_frames"], 14)
+        self.assertEqual(build_kwargs["repaint_injection_ratio"], 0.25)
+
 
 if __name__ == "__main__":
     unittest.main()
