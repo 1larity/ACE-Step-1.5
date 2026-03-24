@@ -69,6 +69,21 @@ class VaeDecodeMixinTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             host.tiled_decode(torch.zeros(1, 4, 32), chunk_size=32, overlap=8)
 
+    def test_tiled_decode_accepts_progress_callback(self):
+        """Decode orchestrator should forward optional chunk progress callback."""
+        host = _DecodeHost()
+        progress_events = []
+
+        out = host.tiled_decode(
+            torch.zeros(1, 4, 32),
+            chunk_size=32,
+            overlap=8,
+            progress_callback=lambda current, total: progress_events.append((current, total)),
+        )
+
+        self.assertEqual(tuple(out.shape), (1, 2, 8))
+        self.assertEqual(progress_events, [(1, 1)])
+
 
 if __name__ == "__main__":
     unittest.main()

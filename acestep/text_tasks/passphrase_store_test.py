@@ -15,6 +15,18 @@ from acestep.text_tasks import passphrase_store
 class PassphraseStoreTests(unittest.TestCase):
     """Verify env, file, and keyring passphrase fallback behavior."""
 
+    def test_external_ai_aliases_match_external_lm_aliases(self) -> None:
+        """Compatibility aliases should continue to point at the shared secret identity."""
+
+        self.assertEqual(
+            passphrase_store.EXTERNAL_AI_SECRET_SERVICE,
+            passphrase_store.EXTERNAL_LM_SECRET_SERVICE,
+        )
+        self.assertEqual(
+            passphrase_store.EXTERNAL_AI_SECRET_USERNAME,
+            passphrase_store.EXTERNAL_LM_SECRET_USERNAME,
+        )
+
     def test_resolve_uses_env_first(self) -> None:
         """Environment passphrase should take precedence."""
 

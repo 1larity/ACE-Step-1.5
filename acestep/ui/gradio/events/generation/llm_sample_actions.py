@@ -3,10 +3,30 @@
 import gradio as gr
 
 from acestep.inference import create_sample
+from acestep.text_tasks.caption_vocal_presence import ensure_caption_has_global_vocal_presence
+from acestep.text_tasks.external_lm_mode import is_external_lm_active
+from acestep.text_tasks.external_lm_tasks import (
+    ExternalAIClientError,
+    create_sample_with_external_provider,
+)
 from acestep.ui.gradio.i18n import t
 
 from .llm_action_params import convert_lm_params
 from .validation import clamp_duration_to_gpu_limit
+
+
+def _clean_optional_wrapped_quotes(text: str | None) -> str | None:
+    """Strip a single layer of leading/trailing quote characters when present."""
+    if text is None:
+        return None
+    if len(text) >= 2 and (
+        (text.startswith("'") and text.endswith("'"))
+        or (text.startswith('"') and text.endswith('"'))
+    ):
+        return text[1:-1]
+    return text
+
+
 
 
 def handle_create_sample(
@@ -34,7 +54,8 @@ def handle_create_sample(
     Returns:
         Tuple of 15 UI updates for wired Gradio outputs.
     """
-    if not llm_handler.llm_initialized:
+    external_active = is_external_lm_active()
+    if not llm_handler.llm_initialized and not external_active:
         gr.Warning(t("messages.lm_not_initialized"))
         return (
             gr.update(),
@@ -54,18 +75,46 @@ def handle_create_sample(
             gr.update(),
         )
 
-    top_k_value, top_p_value = convert_lm_params(lm_top_k, lm_top_p)
-    result = create_sample(
-        llm_handler=llm_handler,
-        query=query,
-        instrumental=instrumental,
-        vocal_language=vocal_language,
-        temperature=lm_temperature,
-        top_k=top_k_value,
-        top_p=top_p_value,
-        use_constrained_decoding=True,
-        constrained_decoding_debug=constrained_decoding_debug,
-    )
+    if external_active:
+        try:
+            result = create_sample_with_external_provider(
+                query=query,
+                instrumental=instrumental,
+                vocal_language=vocal_language,
+            )
+        except ExternalAIClientError as exc:
+            status_message = str(exc)
+            gr.Warning(status_message)
+            return (
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(interactive=False),
+                False,
+                gr.update(),
+                gr.update(),
+                status_message,
+                gr.update(),
+            )
+    else:
+        top_k_value, top_p_value = convert_lm_params(lm_top_k, lm_top_p)
+        result = create_sample(
+            llm_handler=llm_handler,
+            query=query,
+            instrumental=instrumental,
+            vocal_language=vocal_language,
+            temperature=lm_temperature,
+            top_k=top_k_value,
+            top_p=top_p_value,
+            use_constrained_decoding=True,
+            constrained_decoding_debug=constrained_decoding_debug,
+        )
 
     if not result.success:
         gr.Warning(result.status_message or t("messages.sample_creation_failed"))
@@ -88,10 +137,17 @@ def handle_create_sample(
         )
 
     gr.Info(t("messages.sample_created"))
+    normalized_caption = ensure_caption_has_global_vocal_presence(
+        _clean_optional_wrapped_quotes(result.caption) or "",
+        lyrics=result.lyrics,
+        vocal_language=result.language,
+        instrumental=result.instrumental,
+    )
     clamped_duration = clamp_duration_to_gpu_limit(result.duration, llm_handler)
     audio_duration_value = clamped_duration if clamped_duration and clamped_duration > 0 else -1
+    think_value = bool(getattr(llm_handler, "llm_initialized", False) or external_active)
     return (
-        result.caption,
+        normalized_caption,
         result.lyrics,
         result.bpm,
         audio_duration_value,
@@ -102,7 +158,7 @@ def handle_create_sample(
         result.instrumental,
         gr.update(interactive=True),
         True,
-        True,
+        think_value,
         True,
         result.status_message,
         gr.update(value="Custom"),

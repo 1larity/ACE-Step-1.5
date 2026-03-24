@@ -10,6 +10,7 @@ back to Custom/Simple modes after Remix/Repaint forced it off.
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 try:
     from acestep.ui.gradio.events.generation.mode_ui import compute_mode_ui_updates
@@ -18,7 +19,7 @@ except Exception as exc:  # pragma: no cover - environment dependency guard
     compute_mode_ui_updates = None
     _IMPORT_ERROR = exc
 
-# Output indices for the two new state-clearing outputs
+# Output indices for the two state-clearing outputs
 _IDX_AUDIO_CODES = 44
 _IDX_SRC_AUDIO = 45
 _IDX_THINK_CHECKBOX = 14
@@ -36,7 +37,7 @@ class ModeUiStateClearingTests(unittest.TestCase):
     """Tests that mode switches clear stale UI state to prevent noise."""
 
     def test_tuple_length(self):
-        """compute_mode_ui_updates should return exactly 44 elements."""
+        """compute_mode_ui_updates should return exactly 46 elements."""
         result = compute_mode_ui_updates("Custom")
         self.assertEqual(len(result), _EXPECTED_TUPLE_LENGTH)
 
@@ -179,6 +180,16 @@ class ModeUiStateClearingTests(unittest.TestCase):
         think_update = result[_IDX_THINK_CHECKBOX]
         self.assertFalse(think_update.get("value"))
         self.assertFalse(think_update.get("interactive"))
+
+    @patch("acestep.ui.gradio.events.generation.mode_ui.is_external_lm_active")
+    def test_external_lm_active_enables_think_checkbox(self, external_active_mock):
+        """External LM mode should allow think-checkbox interaction in Custom mode."""
+        external_active_mock.return_value = True
+        llm_handler = SimpleNamespace(llm_initialized=False)
+        result = compute_mode_ui_updates("Custom", llm_handler=llm_handler, previous_mode="Remix")
+        think_update = result[_IDX_THINK_CHECKBOX]
+        self.assertTrue(think_update.get("value"))
+        self.assertTrue(think_update.get("interactive"))
 
     def test_non_extract_modes_do_not_force_auto_fields_interactive(self):
         """Mode switches should not re-enable auto-managed metadata fields."""

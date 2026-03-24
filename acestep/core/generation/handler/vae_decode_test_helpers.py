@@ -66,12 +66,21 @@ class _DecodeHost(VaeDecodeMixin):
         """Return deterministic offload policy used by default path."""
         return False
 
-    def _tiled_decode_inner(self, latents, chunk_size, overlap, offload_wav_to_cpu):
+    def _tiled_decode_inner(
+        self,
+        latents,
+        chunk_size,
+        overlap,
+        offload_wav_to_cpu,
+        progress_callback=None,
+    ):
         """Record routed args and return sentinel audio tensor."""
         _ = latents
         self.recorded["chunk_size"] = chunk_size
         self.recorded["overlap"] = overlap
         self.recorded["offload"] = offload_wav_to_cpu
+        if callable(progress_callback):
+            progress_callback(1, 1)
         return torch.ones(1, 2, 8)
 
     def _tiled_decode_cpu_fallback(self, latents):

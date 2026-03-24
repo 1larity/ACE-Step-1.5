@@ -1,7 +1,9 @@
 """Execution helper for ``generate_music`` service invocation with progress tracking."""
 
 import os
+import queue
 import threading
+import time
 from typing import Any, Dict, List, Optional, Sequence
 
 from loguru import logger
@@ -13,7 +15,27 @@ _DEFAULT_GENERATION_TIMEOUT = int(os.environ.get("ACESTEP_GENERATION_TIMEOUT", "
 
 
 class GenerateMusicExecuteMixin:
-    """Run service generation under diffusion progress estimation lifecycle."""
+    """Run service generation with timeout and thread-safe progress forwarding."""
+
+    @staticmethod
+    def _resolve_progress_phase_ranges(phase_ranges: Optional[Dict[str, float]]) -> Dict[str, float]:
+        """Return normalized phase ranges with safe defaults when no helper is available."""
+        defaults = {"service_start": 0.30, "encoding_end": 0.45, "diffusion_end": 0.79}
+        if not isinstance(phase_ranges, dict):
+            return defaults
+        merged = dict(defaults)
+        for key in defaults:
+            value = phase_ranges.get(key)
+            if isinstance(value, (int, float)):
+                merged[key] = float(value)
+        service_start = max(0.05, min(0.55, merged["service_start"]))
+        encoding_end = max(service_start + 0.04, min(0.88, merged["encoding_end"]))
+        diffusion_end = max(encoding_end + 0.08, min(0.95, merged["diffusion_end"]))
+        return {
+            "service_start": service_start,
+            "encoding_end": encoding_end,
+            "diffusion_end": diffusion_end,
+        }
 
     def _run_generate_music_service_with_progress(
         self,
@@ -35,8 +57,9 @@ class GenerateMusicExecuteMixin:
         infer_method: str,
         repaint_crossfade_frames: int = 10,
         repaint_injection_ratio: float = 0.5,
+        phase_ranges: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Any]:
-        """Invoke ``service_generate`` while maintaining background progress estimation.
+        """Invoke ``service_generate`` while relaying progress to the request thread.
 
         Wraps the synchronous CUDA call in a monitored thread so that a hung
         diffusion loop becomes a recoverable ``TimeoutError`` instead of a
@@ -44,9 +67,65 @@ class GenerateMusicExecuteMixin:
         """
         infer_steps_for_progress = len(timesteps) if timesteps else inference_steps
         progress_desc = f"Generating music (batch size: {actual_batch_size})..."
-        progress(0.52, desc=progress_desc)
-        stop_event = None
-        progress_thread = None
+        max_progress = 0.0
+        max_progress_lock = threading.Lock()
+
+        def _report_progress(value: float, desc: Optional[str] = None) -> None:
+            """Emit monotonic progress updates to avoid bar regressions."""
+            nonlocal max_progress
+            if progress is None:
+                return
+            with max_progress_lock:
+                next_value = max(max_progress, float(value))
+                max_progress = next_value
+            progress(next_value, desc=desc or progress_desc)
+
+        normalize_ranges = getattr(self, "_normalize_progress_phase_ranges", None)
+        if callable(normalize_ranges):
+            normalized_ranges = normalize_ranges(phase_ranges)
+        else:
+            normalized_ranges = self._resolve_progress_phase_ranges(phase_ranges)
+        service_start = normalized_ranges["service_start"]
+        encoding_end = normalized_ranges["encoding_end"]
+        diffusion_end = normalized_ranges["diffusion_end"]
+        _report_progress(service_start, desc=progress_desc)
+
+        stage_ranges = {
+            "encoding": (service_start, encoding_end),
+            "diffusion": (encoding_end, diffusion_end),
+        }
+        runtime_progress_setter = getattr(self, "_set_runtime_progress_callback", None)
+
+        def _service_progress_callback(stage: str, current: int, total: int, desc: str) -> None:
+            """Map service stage progress into the main Gradio progress range."""
+            if stage not in stage_ranges or total <= 0:
+                return
+            start, end = stage_ranges[stage]
+            ratio = min(1.0, max(0.0, float(current) / float(total)))
+            progress_events.put((start + (end - start) * ratio, desc))
+
+        progress_events: "queue.Queue[tuple[float, str]]" = queue.Queue()
+        start_wait_ts = time.monotonic()
+        per_step_estimate = None
+        estimate_fn = getattr(self, "_estimate_diffusion_per_step", None)
+        if callable(estimate_fn):
+            per_step_estimate = estimate_fn(
+                infer_steps=infer_steps_for_progress,
+                batch_size=actual_batch_size,
+                duration_sec=audio_duration if audio_duration and audio_duration > 0 else None,
+            ) or getattr(self, "_last_diffusion_per_step_sec", None)
+        if not per_step_estimate:
+            per_step_estimate = 2.5 * max(1, actual_batch_size)
+        expected_sec = float(per_step_estimate) * max(1, infer_steps_for_progress)
+
+        def _drain_progress_events() -> None:
+            """Flush queued service progress events on the request thread."""
+            while True:
+                try:
+                    value, desc = progress_events.get_nowait()
+                except queue.Empty:
+                    break
+                _report_progress(value, desc=desc)
 
         # --- Timeout-wrapped service_generate ---
         # Run the actual CUDA work in a child thread so we can join() with a
@@ -58,6 +137,8 @@ class GenerateMusicExecuteMixin:
 
         def _service_target():
             try:
+                if callable(runtime_progress_setter):
+                    runtime_progress_setter(_service_progress_callback)
                 _result["outputs"] = self.service_generate(
                     captions=service_inputs["captions_batch"],
                     global_captions=service_inputs.get("global_captions_batch"),
@@ -88,45 +169,43 @@ class GenerateMusicExecuteMixin:
                 )
             except Exception as exc:
                 _error["exc"] = exc
+            finally:
+                if callable(runtime_progress_setter):
+                    runtime_progress_setter(None)
 
         try:
-            stop_event, progress_thread = self._start_diffusion_progress_estimator(
-                progress=progress,
-                start=0.52,
-                end=0.79,
-                infer_steps=infer_steps_for_progress,
-                batch_size=actual_batch_size,
-                duration_sec=audio_duration if audio_duration and audio_duration > 0 else None,
-                desc=progress_desc,
-            )
-
             gen_thread = threading.Thread(
                 target=_service_target,
                 name="service-generate",
                 daemon=True,
             )
             gen_thread.start()
-            gen_thread.join(timeout=_DEFAULT_GENERATION_TIMEOUT)
-
-            if gen_thread.is_alive():
-                logger.error(
-                    f"[generate_music] service_generate exceeded {_DEFAULT_GENERATION_TIMEOUT}s "
-                    f"timeout (batch={actual_batch_size}, steps={inference_steps}, "
-                    f"duration={audio_duration}s).  The CUDA operation may still be "
-                    f"running in the background."
+            deadline = start_wait_ts + _DEFAULT_GENERATION_TIMEOUT
+            while gen_thread.is_alive():
+                gen_thread.join(timeout=0.1)
+                _drain_progress_events()
+                elapsed = time.monotonic() - start_wait_ts
+                est_frac = min(0.999, elapsed / expected_sec) if expected_sec > 0 else 0.0
+                _report_progress(
+                    encoding_end + (diffusion_end - encoding_end) * est_frac,
+                    desc=progress_desc,
                 )
-                raise TimeoutError(
-                    f"Music generation timed out after {_DEFAULT_GENERATION_TIMEOUT} seconds.  "
-                    f"This usually means the GPU ran out of VRAM or the diffusion loop "
-                    f"stalled.  Try reducing batch size, duration, or inference steps."
-                )
+                if time.monotonic() >= deadline and gen_thread.is_alive():
+                    logger.error(
+                        f"[generate_music] service_generate exceeded {_DEFAULT_GENERATION_TIMEOUT}s "
+                        f"timeout (batch={actual_batch_size}, steps={inference_steps}, "
+                        f"duration={audio_duration}s).  The CUDA operation may still be "
+                        f"running in the background."
+                    )
+                    raise TimeoutError(
+                        f"Music generation timed out after {_DEFAULT_GENERATION_TIMEOUT} seconds.  "
+                        f"This usually means the GPU ran out of VRAM or the diffusion loop "
+                        f"stalled.  Try reducing batch size, duration, or inference steps."
+                    )
+            _drain_progress_events()
             if "exc" in _error:
                 raise _error["exc"]
-
         finally:
-            if stop_event is not None:
-                stop_event.set()
-            if progress_thread is not None:
-                progress_thread.join(timeout=1.0)
+            _drain_progress_events()
 
         return {"outputs": _result["outputs"], "infer_steps_for_progress": infer_steps_for_progress}

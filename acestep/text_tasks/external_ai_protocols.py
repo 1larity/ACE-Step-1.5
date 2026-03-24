@@ -8,6 +8,7 @@ from typing import Any
 from .external_ai_types import ExternalAIClientError
 
 SUPPORTED_PROTOCOLS = frozenset({"anthropic_messages", "openai_chat"})
+SUPPORTED_REQUEST_PROTOCOLS = SUPPORTED_PROTOCOLS
 
 
 def extract_intent_signal_text(intent: str) -> str:
@@ -60,6 +61,10 @@ def require_message_pair(messages: Sequence[Any]) -> tuple[dict[str, str], dict[
     system_content = system_message.get("content")
     user_content = user_message.get("content")
     if (
+        not isinstance(system_message.get("role"), str)
+        or not system_message.get("role", "").strip()
+        or not isinstance(user_message.get("role"), str)
+        or not user_message.get("role", "").strip()
         not isinstance(system_content, str)
         or system_content == ""
         or not isinstance(user_content, str)
