@@ -76,6 +76,9 @@ class ExternalLmConfigTests(unittest.TestCase):
                 'protocol': 'openai_chat',
                 'default_model': 'default-ollama',
                 'default_base_url': 'http://127.0.0.1:11434/v1/chat/completions',
+                'base_url_presets': (
+                    ("Local Ollama", "http://127.0.0.1:11434/v1/chat/completions"),
+                ),
             },
         )()
 
@@ -90,6 +93,19 @@ class ExternalLmConfigTests(unittest.TestCase):
             "🧠 External LM",
             open=False,
             elem_classes=["has-info-container"],
+        )
+        self.assertIn(
+            unittest.mock.call(
+                label="Base URL",
+                choices=[
+                    ("Local Ollama", "http://127.0.0.1:11434/v1/chat/completions"),
+                ],
+                value="http://127.0.0.1:11434/v1/chat/completions",
+                allow_custom_value=True,
+                info="Choose a provider preset or type a custom chat endpoint URL.",
+                elem_classes=["has-info-container"],
+            ),
+            dropdown_mock.call_args_list,
         )
 
 

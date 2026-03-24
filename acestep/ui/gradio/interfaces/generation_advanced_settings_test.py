@@ -34,7 +34,7 @@ class AdvancedSettingsSectionTests(unittest.TestCase):
         automation_mock,
         external_lm_mock,
     ) -> None:
-        """External-LM config controls should be exported into the merged settings map."""
+        """External-LM controls should stay reachable even when service mode hides service config."""
 
         class _Ctx:
             def __enter__(self):
@@ -46,16 +46,16 @@ class AdvancedSettingsSectionTests(unittest.TestCase):
         accordion_mock.return_value = _Ctx()
         defaults_mock.return_value = {
             "service_pre_initialized": False,
-            "service_mode": False,
+            "service_mode": True,
         }
         ui_config_mock.return_value = object()
+        external_component = object()
         service_mock.return_value = {"service_key": object()}
         lora_mock.return_value = {}
         dit_mock.return_value = {}
         lm_mock.return_value = {}
         output_mock.return_value = {}
         automation_mock.return_value = {}
-        external_component = object()
         external_lm_mock.return_value = {
             "external_lm_provider_dropdown": external_component,
         }
@@ -70,6 +70,7 @@ class AdvancedSettingsSectionTests(unittest.TestCase):
             external_component,
             result["external_lm_provider_dropdown"],
         )
+        service_mock.assert_called_once()
         external_lm_mock.assert_called_once_with(
             {"lm_model_path": "external:ollama:qwen3:4b"}
         )
