@@ -52,6 +52,7 @@ try:
     from .gpu_config import (
         get_gpu_config,
         get_gpu_memory_gb,
+        resolve_lm_backend,
         print_gpu_config_info,
         set_global_gpu_config,
         VRAM_16GB_MIN_GB,
@@ -73,6 +74,7 @@ except ImportError:
     from acestep.gpu_config import (
         get_gpu_config,
         get_gpu_memory_gb,
+        resolve_lm_backend,
         print_gpu_config_info,
         set_global_gpu_config,
         VRAM_16GB_MIN_GB,
@@ -123,6 +125,20 @@ def create_demo(init_params=None, language="en"):
     )
 
     return demo
+
+
+def _resolve_startup_lm_backend(requested_backend: str | None, gpu_config) -> str:
+    """Resolve the startup LM backend against hardware compatibility restrictions."""
+    resolved_backend = resolve_lm_backend(requested_backend, gpu_config)
+    normalized_backend = (requested_backend or "").strip().lower()
+
+    if normalized_backend and normalized_backend != resolved_backend:
+        print(
+            f"Requested LM backend '{normalized_backend}' is not supported on this hardware. "
+            f"Using '{resolved_backend}' instead."
+        )
+
+    return resolved_backend
 
 
 def main():
@@ -404,6 +420,10 @@ def main():
         args.backend = os.environ.get("SERVICE_MODE_BACKEND", "vllm")
         print(f"  DiT model: {args.config_path}")
         print(f"  LM model: {args.lm_model_path}")
+
+    args.backend = _resolve_startup_lm_backend(args.backend, gpu_config)
+
+    if args.service_mode:
         print(f"  Backend: {args.backend}")
 
     # Auto-enable CPU offload for tier6 GPUs (16-24GB) when using the 4B LM model
