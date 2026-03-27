@@ -84,12 +84,31 @@ class LLMHandler:
         self._mlx_model = None
         self._mlx_model_path = None
         self.external_config: Dict[str, str] = {}
+        self._external_session_api_key = ""
 
     def _get_external_provider(self) -> str:
         """Return the configured external provider with a stable default."""
 
         provider = str((self.external_config or {}).get("provider", "")).strip().lower()
         return provider or "openai"
+
+    def set_external_session_api_key(self, api_key: str) -> None:
+        """Keep an unsaved external-provider API key in session memory only."""
+
+        self._external_session_api_key = str(api_key or "").strip()
+
+    def clear_external_session_api_key(self) -> None:
+        """Drop any in-memory-only external-provider API key."""
+
+        self._external_session_api_key = ""
+
+    def resolve_external_runtime_api_key(self) -> str:
+        """Resolve the active external-provider API key for this session."""
+
+        return resolve_external_api_key(
+            provider=self._get_external_provider(),
+            api_key=getattr(self, "_external_session_api_key", ""),
+        )
 
     def has_external_llm_config(self) -> bool:
         """Return whether the external text-LLM path is ready for format mode."""
@@ -104,10 +123,7 @@ class LLMHandler:
 
         model = str((self.external_config or {}).get("model", "")).strip()
         base_url = str((self.external_config or {}).get("base_url", "")).strip()
-        api_key = resolve_external_api_key(
-            provider=profile.provider_id,
-            api_key=str((self.external_config or {}).get("api_key", "")).strip(),
-        )
+        api_key = self.resolve_external_runtime_api_key()
         if not model or not base_url:
             return False
         if profile.api_key_required and not api_key:
@@ -135,7 +151,7 @@ class LLMHandler:
                 protocol=str((self.external_config or {}).get("protocol", "")).strip() or profile.protocol,
                 model=str((self.external_config or {}).get("model", "")).strip(),
                 base_url=str((self.external_config or {}).get("base_url", "")).strip(),
-                api_key=str((self.external_config or {}).get("api_key", "")).strip(),
+                api_key=self.resolve_external_runtime_api_key(),
                 caption=caption,
                 lyrics=lyrics,
                 user_metadata=user_metadata or {},
@@ -201,6 +217,8 @@ class LLMHandler:
             self.llm_backend = None
             self._mlx_model = None
             self._mlx_model_path = None
+            self.external_config = {}
+            self.clear_external_session_api_key()
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
@@ -620,6 +638,8 @@ class LLMHandler:
 
             self.device = device
             self.offload_to_cpu = offload_to_cpu
+            self.external_config = {}
+            self.clear_external_session_api_key()
 
             # Set dtype based on device: bfloat16 for cuda/xpu, float32 for mps/cpu
             # Note: LLM stays in float32 on MPS because autoregressive generation is

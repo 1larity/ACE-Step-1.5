@@ -41,6 +41,20 @@ class ExternalLmConfigBuilderTests(unittest.TestCase):
         self.assertEqual(components["external_llm_api_key"].type, "password")
         self.assertIn("external-lm-api-key", components["external_llm_api_key"].elem_classes)
 
+    def test_build_external_lm_controls_does_not_prefill_api_key_from_params(self) -> None:
+        """Server-side init params should not rehydrate the password field."""
+
+        with gr.Blocks():
+            components = build_external_lm_controls(
+                service_pre_initialized=True,
+                params={
+                    "backend": "external",
+                    "external_llm_api_key": "sk-should-not-prefill",
+                },
+            )
+
+        self.assertEqual(components["external_llm_api_key"].value, "")
+
 
 if __name__ == "__main__":
     unittest.main()

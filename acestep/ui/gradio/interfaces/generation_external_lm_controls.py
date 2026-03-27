@@ -160,7 +160,8 @@ def _resolve_external_prefill_state(
         stored.get("base_url", "")
     ).strip() or profile.default_base_url
 
-    api_key = str(params.get("external_llm_api_key", "")).strip() if service_pre_initialized else ""
+    # Never prefill the password field from server-side init params.
+    api_key = ""
     status = str(params.get("external_llm_status", "")).strip() if service_pre_initialized else ""
     return {
         "provider": provider,

@@ -72,15 +72,19 @@ def configure_external_llm(
         model=model,
         base_url=base_url,
     )
-    # Keep the inline key only in-process so external format can run immediately
-    # after Initialize even when the user has not saved credentials to env/secret storage.
+    # Keep only non-secret runtime settings in the shared config map. An unsaved
+    # inline key may still be kept in session memory so external format can run
+    # immediately after Initialize without persisting credentials to disk.
     llm_handler.external_config = {
         "provider": provider,
         "protocol": profile.protocol,
         "model": model,
         "base_url": base_url,
-        "api_key": api_key,
     }
+    if callable(getattr(llm_handler, "set_external_session_api_key", None)):
+        llm_handler.set_external_session_api_key(api_key)
+    else:
+        llm_handler._external_session_api_key = str(api_key or "").strip()
     llm_handler.llm_backend = "external"
     llm_handler.llm_initialized = False
     if callable(getattr(llm_handler, "has_external_llm_config", None)) and llm_handler.has_external_llm_config():

@@ -362,7 +362,8 @@ class InitServiceWrapperDeviceResolutionTests(unittest.TestCase):
             base_url="https://api.openai.com/v1/chat/completions",
         )
         self.assertEqual(llm_handler.llm_backend, "external")
-        self.assertEqual(llm_handler.external_config["api_key"], "sk-test")
+        self.assertNotIn("api_key", llm_handler.external_config)
+        llm_handler.set_external_session_api_key.assert_called_once_with("sk-test")
         self.assertIn("External LM ready for caption enhancement", result[0])
 
     @patch("acestep.ui.gradio.events.generation.service_init.save_external_lm_runtime_settings")
