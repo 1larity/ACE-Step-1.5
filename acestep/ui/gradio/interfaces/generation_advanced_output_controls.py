@@ -24,7 +24,7 @@ def build_output_controls(
     """
 
     params = init_params or {}
-    with gr.Accordion(t("generation.advanced_output_section"), open=False, elem_classes=["has-info-container"]):
+    with gr.Accordion(t("generation.advanced_output_section"), open=False):
         with gr.Row():
             audio_format = gr.Dropdown(
                 choices=[
@@ -131,7 +131,6 @@ def build_automation_controls(service_mode: bool) -> dict[str, Any]:
     with gr.Accordion(
         t("generation.advanced_automation_section"),
         open=False,
-        elem_classes=["has-info-container"],
     ):
         with gr.Row():
             lm_batch_chunk_size = gr.Number(

@@ -46,8 +46,13 @@ def build_service_toggles(
     """
 
     with gr.Row():
-        lm_info_text = t("service.init_llm_info")
-        if not gpu_config.available_lm_models:
+        backend_value = str(params.get("backend", "")).strip().lower() if service_pre_initialized else ""
+        lm_info_text = (
+            t("service.init_llm_info_external")
+            if backend_value == "external"
+            else t("service.init_llm_info")
+        )
+        if backend_value != "external" and not gpu_config.available_lm_models:
             lm_info_text += " " + t("service.lm_unavailable_vram")
         init_llm_checkbox = gr.Checkbox(
             label=t("service.init_llm_label"),
