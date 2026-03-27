@@ -86,17 +86,24 @@ def request_external_format_plan(
             "Do not echo the source caption. Add concrete progression, instrumentation, "
             "and vocal or mix details while preserving the user's intent."
         )
-        retry_plan = _request_plan_once(
-            provider=profile.provider_id,
-            protocol=protocol_value,
-            model=model_value,
-            base_url=base_url_value,
-            api_key=api_key_value,
-            intent=retry_intent,
-            timeout_sec=timeout_sec,
-        )
-        if retry_plan.caption:
-            plan = retry_plan
+        try:
+            retry_plan = _request_plan_once(
+                provider=profile.provider_id,
+                protocol=protocol_value,
+                model=model_value,
+                base_url=base_url_value,
+                api_key=api_key_value,
+                intent=retry_intent,
+                timeout_sec=timeout_sec,
+            )
+        except ExternalAIClientError as exc:
+            logger.warning(
+                "External LM retry failed for provider '{}'; keeping first plan: {}",
+                profile.provider_id,
+                exc,
+            )
+        else:
+            plan = _merge_retry_plan(plan=plan, retry_plan=retry_plan)
 
     plan = apply_user_metadata_overrides(plan=plan, user_metadata=user_metadata or {})
     if caption_needs_retry(
@@ -109,6 +116,26 @@ def request_external_format_plan(
         )
     if not (plan.lyrics or "").strip():
         plan.lyrics = effective_lyrics
+    return plan
+
+
+def _merge_retry_plan(*, plan: ExternalAIPlan, retry_plan: ExternalAIPlan) -> ExternalAIPlan:
+    """Overlay non-empty retry fields onto the first successful plan."""
+
+    if (retry_plan.caption or "").strip():
+        plan.caption = retry_plan.caption
+    if (retry_plan.lyrics or "").strip():
+        plan.lyrics = retry_plan.lyrics
+    if retry_plan.bpm is not None:
+        plan.bpm = retry_plan.bpm
+    if retry_plan.duration is not None:
+        plan.duration = retry_plan.duration
+    if (retry_plan.key_scale or "").strip():
+        plan.key_scale = retry_plan.key_scale
+    if (retry_plan.time_signature or "").strip():
+        plan.time_signature = retry_plan.time_signature
+    if (retry_plan.vocal_language or "").strip():
+        plan.vocal_language = retry_plan.vocal_language
     return plan
 
 

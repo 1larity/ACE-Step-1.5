@@ -151,6 +151,50 @@ class ExternalLmFormatClientTests(unittest.TestCase):
         self.assertIn("118 BPM", plan.caption)
         self.assertEqual(plan.lyrics, "[Instrumental]")
 
+    @patch("acestep.text_tasks.external_lm_format_client.urllib_request.urlopen")
+    def test_request_external_format_plan_keeps_first_plan_if_retry_fails(self, urlopen_mock) -> None:
+        """A retry failure should not discard the first successful plan."""
+
+        first_payload = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "caption": "Dreamy synth-pop",
+                                "lyrics": "[Verse]\nGlow tonight",
+                                "bpm": 118,
+                                "duration": 42,
+                                "key_scale": "C Minor",
+                                "time_signature": "4/4",
+                                "vocal_language": "en",
+                                "instrumental": False,
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+        urlopen_mock.side_effect = [
+            _FakeResponse(first_payload),
+            TimeoutError("retry timed out"),
+        ]
+
+        plan = request_external_format_plan(
+            provider="openai",
+            model="gpt-4o-mini",
+            base_url="https://api.openai.com/v1/chat/completions",
+            api_key="sk-test",
+            caption="Dreamy synth-pop",
+            lyrics="[Verse]\nGlow tonight",
+            user_metadata={"bpm": 118},
+        )
+
+        self.assertNotEqual(plan.caption, "")
+        self.assertIn("Dreamy synth-pop", plan.caption)
+        self.assertEqual(plan.lyrics, "[Verse]\nGlow tonight")
+        self.assertEqual(plan.bpm, 118)
+
     def test_request_external_format_plan_requires_api_key_when_provider_needs_one(self) -> None:
         """Providers with required credentials should fail fast without a key."""
 

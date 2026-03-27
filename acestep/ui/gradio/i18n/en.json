@@ -311,6 +311,7 @@
     "lm_not_initialized": "❌ 5Hz LM not initialized. Please initialize it first.",
     "external_lm_not_configured": "❌ External LM is selected but not fully configured. Set provider/model/base URL/API key (or matching env vars) and initialize again.",
     "external_lm_models_loaded": "✅ Reached {provider}; discovered {count} models.",
+    "external_lm_cache_not_saved": "⚠️ Models were discovered, but the local cache could not be saved: {error}",
     "external_lm_endpoint_ok": "✅ Endpoint reachable for {provider}; discovered {count} models.",
     "external_lm_endpoint_failed": "❌ Endpoint test failed: {error}",
     "external_lm_settings_saved": "✅ Saved external LM runtime settings for {provider}.",

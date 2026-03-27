@@ -365,6 +365,61 @@ class InitServiceWrapperDeviceResolutionTests(unittest.TestCase):
         self.assertEqual(llm_handler.external_config["api_key"], "sk-test")
         self.assertIn("External LM ready for caption enhancement", result[0])
 
+    @patch("acestep.ui.gradio.events.generation.service_init.save_external_lm_runtime_settings")
+    @patch("acestep.ui.gradio.events.generation.service_init.get_global_gpu_config")
+    def test_external_backend_unloads_local_llm_before_switching(
+        self,
+        mock_gpu_config,
+        save_runtime_mock,
+    ):
+        """Switching to external should unload any resident local LM first."""
+
+        module = self._import_module()
+
+        mock_gpu_config.return_value = MagicMock(
+            available_lm_models=["acestep-5Hz-lm-1.7B"],
+            lm_backend_restriction=None,
+            tier="tier6",
+            gpu_memory_gb=24.0,
+            max_duration_with_lm=600,
+            max_duration_without_lm=600,
+            max_batch_size_with_lm=4,
+            max_batch_size_without_lm=8,
+        )
+
+        dit_handler = MagicMock()
+        dit_handler.initialize_service.return_value = ("ok", True)
+        dit_handler.model = MagicMock()
+        dit_handler.is_turbo_model.return_value = True
+
+        llm_handler = MagicMock()
+        llm_handler.llm_initialized = True
+        llm_handler.llm_backend = "vllm"
+        llm_handler.has_external_llm_config.return_value = True
+
+        module.init_service_wrapper(
+            dit_handler,
+            llm_handler,
+            "/some/project/checkpoints",
+            "acestep-v15-turbo",
+            "cpu",
+            True,
+            "ignored-local-model",
+            "external",
+            "openai",
+            "gpt-4o-mini",
+            "https://api.openai.com/v1/chat/completions",
+            "sk-test",
+            use_flash_attention=False,
+            offload_to_cpu=False,
+            offload_dit_to_cpu=False,
+            compile_model=False,
+            quantization=False,
+        )
+
+        llm_handler.unload.assert_called_once()
+        save_runtime_mock.assert_called_once()
+
 
 class ExternalProviderHydrationTests(unittest.TestCase):
     """Verify provider dropdown hydration loads saved runtime settings."""
@@ -407,25 +462,47 @@ class BackendUiToggleTests(unittest.TestCase):
 
         module = self._import_module()
 
-        local_lm_update, external_accordion_update, checkbox_update = module.update_llm_backend_ui("vllm")
+        local_lm_update, external_accordion_update, checkbox_update, state_update = (
+            module.update_llm_backend_ui("vllm", False, False)
+        )
 
         self.assertTrue(local_lm_update["visible"])
         self.assertTrue(external_accordion_update.visible)
         self.assertFalse(external_accordion_update.open)
         self.assertEqual(checkbox_update["info"], module.t("service.init_llm_info"))
+        self.assertFalse(checkbox_update["value"])
+        self.assertFalse(state_update)
 
     def test_update_llm_backend_ui_opens_external_accordion_for_external_backend(self):
         """Selecting the external backend should expand the external config accordion."""
 
         module = self._import_module()
 
-        local_lm_update, external_accordion_update, checkbox_update = module.update_llm_backend_ui("external")
+        local_lm_update, external_accordion_update, checkbox_update, state_update = (
+            module.update_llm_backend_ui("external", False, False)
+        )
 
         self.assertFalse(local_lm_update["visible"])
         self.assertTrue(external_accordion_update.visible)
         self.assertTrue(external_accordion_update.open)
         self.assertEqual(checkbox_update["info"], module.t("service.init_llm_info_external"))
         self.assertTrue(checkbox_update["value"])
+        self.assertFalse(state_update)
+
+    def test_update_llm_backend_ui_restores_last_local_init_llm_value(self):
+        """Switching back from external should restore the remembered local value."""
+
+        module = self._import_module()
+
+        local_lm_update, external_accordion_update, checkbox_update, state_update = (
+            module.update_llm_backend_ui("vllm", True, False)
+        )
+
+        self.assertTrue(local_lm_update["visible"])
+        self.assertTrue(external_accordion_update.visible)
+        self.assertFalse(external_accordion_update.open)
+        self.assertFalse(checkbox_update["value"])
+        self.assertFalse(state_update)
 
 
 class QuantizationSelectionTests(unittest.TestCase):

@@ -287,6 +287,7 @@
     "lm_not_initialized": "❌ 5Hz LMが初期化されていません。最初に初期化してください。",
     "external_lm_not_configured": "❌ 外部 LM が選択されていますが、設定が不足しています。provider/model/base URL/API キー（または対応する環境変数）を設定して再度初期化してください。",
     "external_lm_models_loaded": "✅ {provider} に接続し、{count} 件のモデルを検出しました。",
+    "external_lm_cache_not_saved": "⚠️ モデルは検出されましたが、ローカルキャッシュを保存できませんでした: {error}",
     "external_lm_endpoint_ok": "✅ {provider} のエンドポイントに接続できました。{count} 件のモデルを検出しました。",
     "external_lm_endpoint_failed": "❌ エンドポイント確認に失敗しました: {error}",
     "external_lm_settings_saved": "✅ {provider} の外部 LM ランタイム設定を保存しました。",

@@ -287,6 +287,7 @@
     "lm_not_initialized": "❌ 5Hz LM未初始化。请先初始化它。",
     "external_lm_not_configured": "❌ 已选择外部 LM，但配置尚未完整。请填写 provider/model/base URL/API key（或对应环境变量）后重新初始化。",
     "external_lm_models_loaded": "✅ 已连接到 {provider}；发现 {count} 个模型。",
+    "external_lm_cache_not_saved": "⚠️ 已发现模型，但本地缓存保存失败：{error}",
     "external_lm_endpoint_ok": "✅ {provider} 端点可达；发现 {count} 个模型。",
     "external_lm_endpoint_failed": "❌ 端点测试失败：{error}",
     "external_lm_settings_saved": "✅ 已保存 {provider} 的 External LM 运行时设置。",

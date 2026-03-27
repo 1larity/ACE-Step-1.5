@@ -38,20 +38,23 @@ def _select_quantization_value(
     )
 
 
-def update_llm_backend_ui(backend: str):
+def update_llm_backend_ui(backend: str, init_llm_checked: bool, local_init_llm_state: bool):
     """Toggle local/external LM widgets based on the selected backend."""
 
     is_external = (backend or "").strip().lower() == "external"
     info_key = "service.init_llm_info_external" if is_external else "service.init_llm_info"
+    remembered_local_value = bool(local_init_llm_state)
     checkbox_update = (
         gr.update(info=t(info_key), value=True)
         if is_external
-        else gr.update(info=t(info_key))
+        else gr.update(info=t(info_key), value=remembered_local_value)
     )
+    next_local_init_llm_state = bool(init_llm_checked) if is_external else remembered_local_value
     return (
         gr.update(visible=not is_external),
         gr.Accordion(visible=True, open=is_external),
         checkbox_update,
+        next_local_init_llm_state,
     )
 
 

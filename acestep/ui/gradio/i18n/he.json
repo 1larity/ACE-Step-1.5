@@ -305,6 +305,7 @@
     "lm_not_initialized": "❌ 5Hz LM לא מאותחל. אנא אתחל אותו תחילה.",
     "external_lm_not_configured": "❌ נבחר External LM אבל ההגדרה עדיין לא מלאה. יש להגדיר provider/model/base URL/API key (או משתני סביבה מתאימים) ולאתחל שוב.",
     "external_lm_models_loaded": "✅ התחברות ל-{provider} הצליחה; התגלו {count} מודלים.",
+    "external_lm_cache_not_saved": "⚠️ המודלים התגלו, אבל ה-cache המקומי לא נשמר: {error}",
     "external_lm_endpoint_ok": "✅ ה-endpoint של {provider} נגיש; התגלו {count} מודלים.",
     "external_lm_endpoint_failed": "❌ בדיקת endpoint נכשלה: {error}",
     "external_lm_settings_saved": "✅ נשמרו הגדרות runtime של External LM עבור {provider}.",

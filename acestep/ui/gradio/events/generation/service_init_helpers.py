@@ -53,6 +53,18 @@ def configure_external_llm(
     status: str,
 ) -> str:
     """Persist external LM state onto the handler and append a status message."""
+    should_unload_local_llm = (
+        callable(getattr(llm_handler, "unload", None))
+        and str(getattr(llm_handler, "llm_backend", "")).strip().lower() != "external"
+        and (
+            getattr(llm_handler, "llm_initialized", False)
+            or getattr(llm_handler, "llm", None) is not None
+            or getattr(llm_handler, "_mlx_model", None) is not None
+        )
+    )
+    if should_unload_local_llm:
+        llm_handler.unload()
+
     save_external_runtime(
         save_runtime_settings=save_runtime_settings,
         provider=provider,

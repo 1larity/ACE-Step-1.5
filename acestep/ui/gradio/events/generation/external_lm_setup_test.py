@@ -71,6 +71,33 @@ class ExternalLmSetupActionTests(unittest.TestCase):
         self.assertIn("discovered 2 models", status)
         save_cache_mock.assert_called_once()
 
+    @patch("acestep.ui.gradio.events.generation.external_lm_setup.save_cached_external_models")
+    @patch("acestep.ui.gradio.events.generation.external_lm_setup.discover_provider_models")
+    def test_fetch_external_lm_models_keeps_success_when_cache_write_fails(
+        self,
+        discover_models_mock,
+        save_cache_mock,
+    ) -> None:
+        """A cache-write error should not mask successful remote discovery."""
+
+        discover_models_mock.return_value = (
+            "https://api.openai.com/v1/chat/completions",
+            ["gpt-4.1-mini", "gpt-4o-mini"],
+        )
+        save_cache_mock.side_effect = OSError("read-only filesystem")
+
+        model_update, status = external_lm_setup.fetch_external_lm_models(
+            "openai",
+            "gpt-4.1-mini",
+            "https://api.openai.com/v1/chat/completions",
+            "sk-test",
+        )
+
+        self.assertEqual(model_update["choices"], ["gpt-4.1-mini", "gpt-4o-mini"])
+        self.assertEqual(model_update["value"], "gpt-4.1-mini")
+        self.assertIn("discovered 2 models", status)
+        self.assertIn("cache could not be saved", status)
+
     @patch("acestep.ui.gradio.events.generation.external_lm_setup_support.discover_external_models")
     @patch("acestep.ui.gradio.events.generation.external_lm_setup_support.resolve_external_api_key")
     def test_discover_provider_models_uses_resolved_api_key_fallback(

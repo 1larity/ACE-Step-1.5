@@ -42,11 +42,16 @@ def register_generation_service_handlers(
 
     generation_section["backend_dropdown"].change(
         fn=gen_h.update_llm_backend_ui,
-        inputs=[generation_section["backend_dropdown"]],
+        inputs=[
+            generation_section["backend_dropdown"],
+            generation_section["init_llm_checkbox"],
+            generation_section["init_llm_local_state"],
+        ],
         outputs=[
             generation_section["local_lm_column"],
             generation_section["external_llm_accordion"],
             generation_section["init_llm_checkbox"],
+            generation_section["init_llm_local_state"],
         ],
     )
     register_external_lm_field_handlers(generation_section)

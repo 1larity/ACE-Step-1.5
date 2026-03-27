@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+from loguru import logger
+
 from acestep.text_tasks.external_lm_credentials import resolve_external_secret_store_path
 from acestep.text_tasks.external_lm_model_cache import load_cached_external_models, save_cached_external_models
 from acestep.text_tasks.external_lm_model_discovery import ExternalModelDiscoveryError, discover_external_models
@@ -30,20 +32,32 @@ def fetch_models_action(*, provider: str, model: str, base_url: str, api_key: st
             base_url=base_url,
             api_key=api_key,
         )
-        save_cache(provider=profile.provider_id, protocol=profile.protocol, base_url=resolved_base_url, models=models)
     except ValueError as exc:
         return gr.update(), status_formatter([f"❌ {exc}"])
     except ExternalModelDiscoveryError as exc:
         return gr.update(), status_formatter([t("messages.external_lm_endpoint_failed", error=str(exc))])
-    except Exception as exc:
+    except (OSError, SecretStoreError, RuntimeError) as exc:
         return gr.update(), status_formatter([t("messages.external_lm_endpoint_failed", error=str(exc))])
 
     selected_model = (model or "").strip()
     if not selected_model or selected_model not in models:
         selected_model = models[0] if models else profile.default_model
-    return gr.update(choices=models, value=selected_model), status_formatter(
-        [t("messages.external_lm_models_loaded", provider=profile.label, count=len(models))]
-    )
+    status_lines = [t("messages.external_lm_models_loaded", provider=profile.label, count=len(models))]
+    try:
+        save_cache(
+            provider=profile.provider_id,
+            protocol=profile.protocol,
+            base_url=resolved_base_url,
+            models=models,
+        )
+    except OSError as exc:
+        logger.warning(
+            "Failed to persist external model cache for provider '{}': {}",
+            profile.provider_id,
+            exc,
+        )
+        status_lines.append(t("messages.external_lm_cache_not_saved", error=str(exc)))
+    return gr.update(choices=models, value=selected_model), status_formatter(status_lines)
 
 def save_settings_action(*, provider: str, model: str, base_url: str, api_key: str,
                          get_profile=get_external_provider_profile,
@@ -103,7 +117,7 @@ def test_endpoint_action(*, provider: str, base_url: str, api_key: str,
         return status_formatter([f"❌ {exc}"])
     except ExternalModelDiscoveryError as exc:
         return status_formatter([t("messages.external_lm_endpoint_failed", error=str(exc))])
-    except Exception as exc:
+    except (OSError, SecretStoreError, RuntimeError) as exc:
         return status_formatter([t("messages.external_lm_endpoint_failed", error=str(exc))])
 
     return status_formatter([t("messages.external_lm_endpoint_ok", provider=profile.label, count=len(models))])
