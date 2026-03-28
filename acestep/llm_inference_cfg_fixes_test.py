@@ -533,6 +533,45 @@ class TestLmProgressCallbacks(unittest.TestCase):
         self.assertTrue(llm_cfg_updates)
         self.assertGreaterEqual(min(llm_cfg_updates), 0.1)
         self.assertLessEqual(max(llm_cfg_updates), 0.3)
+        self.assertIn((0.3, "LLM metadata generation complete"), updates)
+
+    def test_generate_with_stop_condition_closes_audio_code_phase_band(self):
+        """Phase 2 should emit an explicit terminal progress update on early success."""
+        handler = LLMHandler()
+        handler.llm_initialized = True
+        handler.llm_backend = "pt"
+
+        updates = []
+        call_count = {"count": 0}
+
+        def fake_generate_from_formatted_prompt(*args, **kwargs):
+            call_count["count"] += 1
+            progress_callback = kwargs.get("progress_callback")
+            if progress_callback is not None:
+                progress_callback(5, 10, "LLM CFG Generation")
+            if call_count["count"] == 1:
+                return "<think>bpm: 120\n</think>", "ok"
+            return "<|audio_code_1|><|audio_code_2|>", "ok"
+
+        with patch.object(handler, "generate_from_formatted_prompt", side_effect=fake_generate_from_formatted_prompt):
+            with patch.object(handler, "build_formatted_prompt", return_value="PROMPT"):
+                with patch.object(handler, "parse_lm_output", side_effect=[({"bpm": 120}, ""), ({}, "<|audio_code_1|><|audio_code_2|>")]):
+                    with patch.object(handler, "_format_metadata_as_cot", return_value="cot"):
+                        with patch.object(handler, "build_formatted_prompt_with_cot", return_value="PROMPT2"):
+                            handler.generate_with_stop_condition(
+                                caption="test caption",
+                                lyrics="test lyrics",
+                                cfg_scale=2.0,
+                                temperature=0.6,
+                                negative_prompt="",
+                                top_k=None,
+                                top_p=None,
+                                repetition_penalty=1.0,
+                                infer_type="llm_dit",
+                                progress=lambda value, desc=None: updates.append((value, desc)),
+                            )
+
+        self.assertIn((0.5, "LLM audio code generation complete"), updates)
 
 
 if __name__ == "__main__":

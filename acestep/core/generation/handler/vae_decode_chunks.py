@@ -13,6 +13,13 @@ class VaeDecodeChunksMixin:
     def _tiled_decode_inner(self, latents, chunk_size, overlap, offload_wav_to_cpu, progress_callback=None):
         """Run tiled decode with adaptive overlap and OOM fallbacks."""
         bsz, _channels, latent_frames = latents.shape
+        completed_steps = 0
+
+        def _monotonic_progress(current, total, desc):
+            nonlocal completed_steps
+            completed_steps = max(completed_steps, current)
+            if progress_callback is not None:
+                progress_callback(completed_steps, total, desc)
 
         # Batch-sequential decode keeps peak VRAM stable across batch sizes.
         if bsz > 1:
@@ -80,7 +87,7 @@ class VaeDecodeChunksMixin:
                     stride,
                     overlap,
                     num_steps,
-                    progress_callback=progress_callback,
+                    progress_callback=_monotonic_progress,
                 )
             except torch.cuda.OutOfMemoryError:
                 logger.warning(
@@ -96,7 +103,7 @@ class VaeDecodeChunksMixin:
                 stride,
                 overlap,
                 num_steps,
-                progress_callback=progress_callback,
+                progress_callback=_monotonic_progress,
             )
         except torch.cuda.OutOfMemoryError:
             logger.warning(
@@ -112,7 +119,7 @@ class VaeDecodeChunksMixin:
                     stride,
                     overlap,
                     num_steps,
-                    progress_callback=progress_callback,
+                    progress_callback=_monotonic_progress,
                 )
             except torch.cuda.OutOfMemoryError:
                 logger.warning("[tiled_decode] OOM even with offload path, falling back to full CPU VAE decode")

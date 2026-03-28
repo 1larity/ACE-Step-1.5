@@ -1434,6 +1434,7 @@ class LLMHandler:
                 logger.info(f"Batch Phase 1 completed in {phase1_time:.2f}s. Generated metadata: {list(metadata.keys())}")
             else:
                 logger.info(f"Phase 1 completed in {phase1_time:.2f}s. Generated metadata: {list(metadata.keys())}")
+            progress(0.3, "LLM metadata generation complete")
         else:
             # Use user-provided metadata
             if is_batch:
@@ -1600,6 +1601,7 @@ class LLMHandler:
                 metadata_list.append(metadata.copy())  # Same metadata for all
 
             phase2_time = time.time() - phase2_start
+            progress(0.5, "LLM audio code generation complete")
 
             # Log results
             codes_counts = [len(codes.split('<|audio_code_')) - 1 if codes else 0 for codes in audio_codes_list]
@@ -1665,6 +1667,7 @@ class LLMHandler:
                 }
 
             phase2_time = time.time() - phase2_start
+            progress(0.5, "LLM audio code generation complete")
 
             # Parse audio codes from output (metadata should be same as Phase 1)
             _, audio_codes = self.parse_lm_output(codes_output_text)

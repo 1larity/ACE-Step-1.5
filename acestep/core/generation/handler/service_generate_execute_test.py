@@ -79,7 +79,8 @@ class ServiceGenerateExecuteMixinTests(unittest.TestCase):
             "non_cover_text_attention_masks": None,
             "precomputed_lm_hints_25Hz": None,
         }
-        callback = lambda current, total, desc: (current, total, desc)
+        def callback(current, total, desc):
+            return (current, total, desc)
 
         kwargs = host._build_service_generate_kwargs(
             payload=payload,

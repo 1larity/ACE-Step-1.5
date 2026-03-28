@@ -78,11 +78,11 @@ class GenerateMusicExecuteMixin:
             with progress_lock:
                 clamped = max(progress_state["value"], value)
                 progress_state["value"] = clamped
-            if progress is not None:
-                try:
-                    progress(clamped, desc=desc)
-                except Exception as exc:
-                    logger.debug("[generate_music] Ignoring progress callback error: {}", exc)
+                if progress is not None:
+                    try:
+                        progress(clamped, desc=desc)
+                    except Exception as exc:
+                        logger.debug("[generate_music] Ignoring progress callback error: {}", exc)
             return clamped
 
         _emit_progress(0.52, progress_desc)
