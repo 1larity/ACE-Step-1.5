@@ -5,7 +5,7 @@
 
 import logging
 import time
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from tqdm import tqdm
@@ -134,6 +134,7 @@ def mlx_generate_diffusion(
     encoder_hidden_states_non_cover_np: Optional[np.ndarray] = None,
     context_latents_non_cover_np: Optional[np.ndarray] = None,
     compile_model: bool = False,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
     disable_tqdm: bool = False,
 ) -> Dict[str, object]:
     """Run the complete MLX diffusion loop with optional CFG guidance.
@@ -160,6 +161,8 @@ def mlx_generate_diffusion(
         encoder_hidden_states_non_cover_np: optional [B, enc_L, D] for non-cover.
         context_latents_non_cover_np: optional [B, T, C] for non-cover.
         compile_model: If True, compile the decoder step with ``mx.compile``.
+        progress_callback: Optional diffusion-step callback receiving
+            ``(current_step, total_steps, desc)``.
         disable_tqdm: If True, suppress the diffusion progress bar.
 
     Returns:
@@ -302,6 +305,8 @@ def mlx_generate_diffusion(
                 xt = xt - vt * dt_arr
 
             mx.eval(xt)
+        if progress_callback is not None:
+            progress_callback(step_idx + 1, num_steps, "DiT diffusion...")
 
     diff_end = time.time()
     total_end = time.time()

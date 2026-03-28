@@ -5,7 +5,7 @@ It coordinates request normalization, batch preparation, diffusion execution,
 and output attachment without owning model internals.
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import torch
 
@@ -47,6 +47,7 @@ class ServiceGenerateMixin:
         chunk_mask_modes: Optional[List[str]] = None,
         repaint_crossfade_frames: int = 10,
         repaint_injection_ratio: float = 0.5,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> Dict[str, Any]:
         """Generate music latents and metadata from text/audio conditioning inputs.
 
@@ -76,6 +77,8 @@ class ServiceGenerateMixin:
             timesteps: Optional explicit diffusion timestep sequence.
             repaint_crossfade_frames: Crossfade width (latent frames) at repaint
                 boundaries for boundary blending.  ~0.4s at 25 Hz.
+            progress_callback: Optional diffusion-step callback receiving
+                ``(current_step, total_steps, desc)``.
 
         Returns:
             Dict[str, Any]: Service output payload containing generated latents,
@@ -134,6 +137,7 @@ class ServiceGenerateMixin:
             timesteps=timesteps,
             repaint_crossfade_frames=repaint_crossfade_frames,
             repaint_injection_ratio=repaint_injection_ratio,
+            progress_callback=progress_callback,
         )
         outputs, encoder_hidden_states, encoder_attention_mask, context_latents = (
             self._execute_service_generate_diffusion(

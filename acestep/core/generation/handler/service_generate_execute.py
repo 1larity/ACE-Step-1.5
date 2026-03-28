@@ -1,7 +1,7 @@
 """Execution helpers for service generation diffusion and output assembly."""
 
 import random
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import torch
 from loguru import logger
@@ -77,6 +77,7 @@ class ServiceGenerateExecuteMixin:
         timesteps: Optional[List[float]],
         repaint_crossfade_frames: int = 10,
         repaint_injection_ratio: float = 0.5,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> Dict[str, Any]:
         """Build kwargs passed to model generation backends."""
         repaint_mask = payload.get("repaint_mask")
@@ -106,6 +107,8 @@ class ServiceGenerateExecuteMixin:
             "cfg_interval_start": cfg_interval_start,
             "cfg_interval_end": cfg_interval_end,
             "shift": shift,
+            "use_progress_bar": not getattr(self, "disable_tqdm", False),
+            "progress_callback": progress_callback,
             "repaint_mask": repaint_mask,
             "clean_src_latents": clean_src_latents,
             "repaint_crossfade_frames": repaint_crossfade_frames,
@@ -197,6 +200,8 @@ class ServiceGenerateExecuteMixin:
                             encoder_hidden_states_non_cover=enc_hs_nc,
                             encoder_attention_mask_non_cover=enc_am_nc,
                             context_latents_non_cover=ctx_nc,
+                            progress_callback=generate_kwargs.get("progress_callback"),
+                            disable_tqdm=not generate_kwargs.get("use_progress_bar", True),
                         )
                         _tc = outputs.get("time_costs", {})
                         logger.info(

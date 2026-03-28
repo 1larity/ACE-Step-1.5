@@ -1,8 +1,10 @@
 """Execution helper for ``generate_music`` service invocation with progress tracking."""
 
 import os
+import queue
 import threading
-from typing import Any, Dict, List, Optional, Sequence
+import time
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from loguru import logger
 
@@ -14,6 +16,28 @@ _DEFAULT_GENERATION_TIMEOUT = int(os.environ.get("ACESTEP_GENERATION_TIMEOUT", "
 
 class GenerateMusicExecuteMixin:
     """Run service generation under diffusion progress estimation lifecycle."""
+
+    @staticmethod
+    def _drain_runtime_progress_events(
+        progress_events: "queue.Queue[tuple[int, int, str]]",
+        emit_progress: Callable[[float, Optional[str]], float],
+        start: float,
+        end: float,
+    ) -> bool:
+        """Drain queued diffusion-step events and map them onto UI progress."""
+        drained = False
+        while True:
+            try:
+                current, total, desc = progress_events.get_nowait()
+            except queue.Empty:
+                return drained
+
+            if total <= 0:
+                continue
+            frac = min(1.0, max(0.0, current / total))
+            mapped = start + (end - start) * frac
+            emit_progress(mapped, desc)
+            drained = True
 
     def _run_generate_music_service_with_progress(
         self,
@@ -44,9 +68,24 @@ class GenerateMusicExecuteMixin:
         """
         infer_steps_for_progress = len(timesteps) if timesteps else inference_steps
         progress_desc = f"Generating music (batch size: {actual_batch_size})..."
-        progress(0.52, desc=progress_desc)
         stop_event = None
         progress_thread = None
+        progress_events: "queue.Queue[tuple[int, int, str]]" = queue.Queue()
+        progress_state = {"value": 0.0}
+        progress_lock = threading.Lock()
+
+        def _emit_progress(value: float, desc: Optional[str] = None) -> float:
+            with progress_lock:
+                clamped = max(progress_state["value"], value)
+                progress_state["value"] = clamped
+            if progress is not None:
+                try:
+                    progress(clamped, desc=desc)
+                except Exception as exc:
+                    logger.debug("[generate_music] Ignoring progress callback error: {}", exc)
+            return clamped
+
+        _emit_progress(0.52, progress_desc)
 
         # --- Timeout-wrapped service_generate ---
         # Run the actual CUDA work in a child thread so we can join() with a
@@ -85,13 +124,14 @@ class GenerateMusicExecuteMixin:
                     chunk_mask_modes=service_inputs.get("chunk_mask_modes_batch"),
                     repaint_crossfade_frames=repaint_crossfade_frames,
                     repaint_injection_ratio=repaint_injection_ratio,
+                    progress_callback=lambda current, total, desc: progress_events.put((current, total, desc)),
                 )
             except Exception as exc:
                 _error["exc"] = exc
 
         try:
             stop_event, progress_thread = self._start_diffusion_progress_estimator(
-                progress=progress,
+                progress=_emit_progress,
                 start=0.52,
                 end=0.79,
                 infer_steps=infer_steps_for_progress,
@@ -106,7 +146,43 @@ class GenerateMusicExecuteMixin:
                 daemon=True,
             )
             gen_thread.start()
-            gen_thread.join(timeout=_DEFAULT_GENERATION_TIMEOUT)
+            deadline = time.monotonic() + _DEFAULT_GENERATION_TIMEOUT
+            poll_interval = 0.1
+            saw_runtime_progress = False
+            while gen_thread.is_alive():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                gen_thread.join(timeout=min(poll_interval, remaining))
+                drained_runtime_progress = self._drain_runtime_progress_events(
+                    progress_events=progress_events,
+                    emit_progress=_emit_progress,
+                    start=0.52,
+                    end=0.79,
+                )
+                if drained_runtime_progress and not saw_runtime_progress:
+                    saw_runtime_progress = True
+                    if stop_event is not None:
+                        stop_event.set()
+                    if progress_thread is not None:
+                        progress_thread.join(timeout=1.0)
+                        progress_thread = None
+                if not gen_thread.is_alive():
+                    break
+
+            drained_runtime_progress = self._drain_runtime_progress_events(
+                progress_events=progress_events,
+                emit_progress=_emit_progress,
+                start=0.52,
+                end=0.79,
+            )
+            if drained_runtime_progress and not saw_runtime_progress:
+                saw_runtime_progress = True
+                if stop_event is not None:
+                    stop_event.set()
+                if progress_thread is not None:
+                    progress_thread.join(timeout=1.0)
+                    progress_thread = None
 
             if gen_thread.is_alive():
                 logger.error(
@@ -122,6 +198,7 @@ class GenerateMusicExecuteMixin:
                 )
             if "exc" in _error:
                 raise _error["exc"]
+            _emit_progress(0.79, progress_desc)
 
         finally:
             if stop_event is not None:

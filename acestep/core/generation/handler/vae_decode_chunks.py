@@ -10,7 +10,7 @@ from tqdm import tqdm
 class VaeDecodeChunksMixin:
     """Implement chunked decode strategies for GPU and CPU-offload modes."""
 
-    def _tiled_decode_inner(self, latents, chunk_size, overlap, offload_wav_to_cpu):
+    def _tiled_decode_inner(self, latents, chunk_size, overlap, offload_wav_to_cpu, progress_callback=None):
         """Run tiled decode with adaptive overlap and OOM fallbacks."""
         bsz, _channels, latent_frames = latents.shape
 
@@ -20,7 +20,18 @@ class VaeDecodeChunksMixin:
             per_sample_results = []
             for b_idx in range(bsz):
                 single = latents[b_idx : b_idx + 1]
-                decoded = self._tiled_decode_inner(single, chunk_size, overlap, offload_wav_to_cpu)
+                sample_progress = None
+                if progress_callback is not None:
+                    def _sample_progress(current, total, desc, offset=b_idx):
+                        progress_callback(offset * total + current, bsz * total, desc)
+                    sample_progress = _sample_progress
+                decoded = self._tiled_decode_inner(
+                    single,
+                    chunk_size,
+                    overlap,
+                    offload_wav_to_cpu,
+                    progress_callback=sample_progress,
+                )
                 per_sample_results.append(decoded.cpu() if decoded.device.type != "cpu" else decoded)
                 self._empty_cache()
             result = torch.cat(per_sample_results, dim=0)
@@ -46,6 +57,8 @@ class VaeDecodeChunksMixin:
                 decoder_output = self.vae.decode(latents)
                 result = decoder_output.sample
                 del decoder_output
+                if progress_callback is not None:
+                    progress_callback(1, 1, "Decoding audio chunks...")
                 return result
             except torch.cuda.OutOfMemoryError:
                 logger.warning("[tiled_decode] OOM on direct decode, falling back to CPU VAE decode")
@@ -60,7 +73,15 @@ class VaeDecodeChunksMixin:
 
         if offload_wav_to_cpu:
             try:
-                return self._tiled_decode_offload_cpu(latents, bsz, latent_frames, stride, overlap, num_steps)
+                return self._tiled_decode_offload_cpu(
+                    latents,
+                    bsz,
+                    latent_frames,
+                    stride,
+                    overlap,
+                    num_steps,
+                    progress_callback=progress_callback,
+                )
             except torch.cuda.OutOfMemoryError:
                 logger.warning(
                     f"[tiled_decode] OOM during offload_cpu decode with chunk_size={chunk_size}, "
@@ -70,7 +91,13 @@ class VaeDecodeChunksMixin:
                 return self._decode_on_cpu(latents)
 
         try:
-            return self._tiled_decode_gpu(latents, stride, overlap, num_steps)
+            return self._tiled_decode_gpu(
+                latents,
+                stride,
+                overlap,
+                num_steps,
+                progress_callback=progress_callback,
+            )
         except torch.cuda.OutOfMemoryError:
             logger.warning(
                 f"[tiled_decode] OOM during GPU decode with chunk_size={chunk_size}, "
@@ -78,13 +105,21 @@ class VaeDecodeChunksMixin:
             )
             self._empty_cache()
             try:
-                return self._tiled_decode_offload_cpu(latents, bsz, latent_frames, stride, overlap, num_steps)
+                return self._tiled_decode_offload_cpu(
+                    latents,
+                    bsz,
+                    latent_frames,
+                    stride,
+                    overlap,
+                    num_steps,
+                    progress_callback=progress_callback,
+                )
             except torch.cuda.OutOfMemoryError:
                 logger.warning("[tiled_decode] OOM even with offload path, falling back to full CPU VAE decode")
                 self._empty_cache()
                 return self._decode_on_cpu(latents)
 
-    def _tiled_decode_gpu(self, latents, stride, overlap, num_steps):
+    def _tiled_decode_gpu(self, latents, stride, overlap, num_steps, progress_callback=None):
         """Decode chunks and keep decoded audio tensors on GPU."""
         decoded_audio_list = []
         upsample_factor = None
@@ -112,10 +147,21 @@ class VaeDecodeChunksMixin:
             end_idx = audio_len - trim_end if trim_end > 0 else audio_len
             audio_core = audio_chunk[:, :, trim_start:end_idx]
             decoded_audio_list.append(audio_core)
+            if progress_callback is not None:
+                progress_callback(i + 1, num_steps, "Decoding audio chunks...")
 
         return torch.cat(decoded_audio_list, dim=-1)
 
-    def _tiled_decode_offload_cpu(self, latents, bsz, latent_frames, stride, overlap, num_steps):
+    def _tiled_decode_offload_cpu(
+        self,
+        latents,
+        bsz,
+        latent_frames,
+        stride,
+        overlap,
+        num_steps,
+        progress_callback=None,
+    ):
         """Decode chunks on GPU and copy trimmed audio cores to a CPU buffer."""
         first_core_end = min(stride, latent_frames)
         first_win_end = min(latent_frames, first_core_end + overlap)
@@ -138,6 +184,8 @@ class VaeDecodeChunksMixin:
         first_audio_core = first_audio_chunk[:, :, :first_end_idx]
         audio_write_pos = first_audio_core.shape[-1]
         final_audio[:, :, :audio_write_pos] = first_audio_core.cpu()
+        if progress_callback is not None:
+            progress_callback(1, num_steps, "Decoding audio chunks...")
 
         del first_audio_chunk, first_audio_core, first_latent_chunk
 
@@ -164,6 +212,8 @@ class VaeDecodeChunksMixin:
             core_len = audio_core.shape[-1]
             final_audio[:, :, audio_write_pos : audio_write_pos + core_len] = audio_core.cpu()
             audio_write_pos += core_len
+            if progress_callback is not None:
+                progress_callback(i + 1, num_steps, "Decoding audio chunks...")
 
             del audio_chunk, audio_core, latent_chunk
 
