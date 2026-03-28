@@ -122,7 +122,7 @@ class GenerateMusicDecodeMixin:
             if total <= 0:
                 return
             frac = min(1.0, max(0.0, current / total))
-            mapped = 0.8 + 0.18 * frac
+            mapped = 0.82 + 0.16 * frac
             _emit_decode_progress(mapped, desc)
 
         if progress:

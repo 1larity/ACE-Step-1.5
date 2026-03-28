@@ -119,16 +119,16 @@ class _Host(GenerateMusicDecodeMixin):
         """Return deterministic decoded waveform for MLX decode branch."""
         _ = latents
         if progress_callback is not None:
-            progress_callback(1, 4, "Decoding audio chunks...")
-            progress_callback(4, 4, "Decoding audio chunks...")
+            progress_callback(1, 64, "Decoding audio chunks...")
+            progress_callback(64, 64, "Decoding audio chunks...")
         return torch.ones(1, 2, 8)
 
     def tiled_decode(self, latents, progress_callback=None):
         """Return deterministic decoded waveform for tiled decode branch."""
         _ = latents
         if progress_callback is not None:
-            progress_callback(1, 4, "Decoding audio chunks...")
-            progress_callback(4, 4, "Decoding audio chunks...")
+            progress_callback(1, 64, "Decoding audio chunks...")
+            progress_callback(64, 64, "Decoding audio chunks...")
         return torch.ones(1, 2, 8)
 
 
@@ -197,6 +197,8 @@ class GenerateMusicDecodeMixinTests(unittest.TestCase):
         self.assertAlmostEqual(updated_costs["offload_time_cost"], 0.25, places=6)
         self.assertEqual(host.progress_calls[0], (0.8, "Preparing audio decode..."))
         self.assertIn((0.82, "Decoding audio chunks..."), host.progress_calls)
+        progress_values = [value for value, _ in host.progress_calls]
+        self.assertEqual(progress_values, sorted(progress_values))
         self.assertAlmostEqual(host.progress_calls[-1][0], 0.98, places=6)
 
     def test_decode_pred_latents_restores_vae_device_on_decode_error(self):
