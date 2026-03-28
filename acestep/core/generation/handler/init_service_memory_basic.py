@@ -1,8 +1,12 @@
 """Memory and device-check helpers for initialization/offload flows."""
 
 import gc
+import os
 import platform
-import resource
+try:
+    import resource
+except ImportError:
+    resource = None
 
 import torch
 from loguru import logger
@@ -158,6 +162,7 @@ class InitServiceMemoryBasicMixin:
         """Return current process RSS in megabytes.
 
         Uses ``/proc/self/statm`` on Linux for the true current resident set size.
+        Uses ``ctypes`` on Windows to call GetProcessMemoryInfo.
         Falls back to ``getrusage`` (peak RSS) on other platforms.
         """
         if platform.system() == "Linux":
@@ -165,13 +170,53 @@ class InitServiceMemoryBasicMixin:
                 with open("/proc/self/statm") as f:
                     # statm field index 1 is RSS in pages
                     rss_pages = int(f.read().split()[1])
-                return rss_pages * resource.getpagesize() / (1024 * 1024)
+                # Try os.sysconf for page size, fallback to resource or 4096
+                try:
+                    page_size = os.sysconf('SC_PAGE_SIZE')
+                except (AttributeError, ValueError):
+                    page_size = resource.getpagesize() if resource else 4096
+                return rss_pages * page_size / (1024 * 1024)
             except Exception:
                 pass
-        usage = resource.getrusage(resource.RUSAGE_SELF)
-        if platform.system() == "Darwin":
-            return usage.ru_maxrss / (1024 * 1024)
-        return usage.ru_maxrss / 1024
+
+        if platform.system() == "Windows":
+            try:
+                import ctypes
+                from ctypes import wintypes
+
+                class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                    _fields_ = [
+                        ("cb", wintypes.DWORD),
+                        ("PageFaultCount", wintypes.DWORD),
+                        ("PeakWorkingSetSize", ctypes.c_size_t),
+                        ("WorkingSetSize", ctypes.c_size_t),
+                        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                        ("PagefileUsage", ctypes.c_size_t),
+                        ("PeakPagefileUsage", ctypes.c_size_t),
+                    ]
+
+                GetProcessMemoryInfo = ctypes.windll.psapi.GetProcessMemoryInfo
+                GetCurrentProcess = ctypes.windll.kernel32.GetCurrentProcess
+                counters = PROCESS_MEMORY_COUNTERS()
+                counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+                if GetProcessMemoryInfo(GetCurrentProcess(), ctypes.byref(counters), ctypes.sizeof(counters)):
+                    return counters.WorkingSetSize / (1024 * 1024)
+            except Exception:
+                pass
+            return 0.0
+
+        if resource:
+            usage = resource.getrusage(resource.RUSAGE_SELF)
+            if platform.system() == "Darwin":
+                # On macOS, ru_maxrss is in bytes
+                return usage.ru_maxrss / (1024 * 1024)
+            # On other Unixes, ru_maxrss is in kilobytes
+            return usage.ru_maxrss / 1024
+
+        return 0.0
 
     def _release_system_memory(self):
         """Aggressively reclaim system memory after device transfers.
