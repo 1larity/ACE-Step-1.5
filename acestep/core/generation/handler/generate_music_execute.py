@@ -129,6 +129,16 @@ class GenerateMusicExecuteMixin:
             except Exception as exc:
                 _error["exc"] = exc
 
+        def _stop_progress_estimator_if_finished() -> None:
+            """Stop the estimator thread but keep its handle until it actually exits."""
+            nonlocal progress_thread
+            if progress_thread is None:
+                return
+            progress_thread.join(timeout=1.0)
+            if hasattr(progress_thread, "is_alive") and progress_thread.is_alive():
+                return
+            progress_thread = None
+
         try:
             stop_event, progress_thread = self._start_diffusion_progress_estimator(
                 progress=_emit_progress,
@@ -164,9 +174,7 @@ class GenerateMusicExecuteMixin:
                     saw_runtime_progress = True
                     if stop_event is not None:
                         stop_event.set()
-                    if progress_thread is not None:
-                        progress_thread.join(timeout=1.0)
-                        progress_thread = None
+                    _stop_progress_estimator_if_finished()
                 if not gen_thread.is_alive():
                     break
 
@@ -180,9 +188,7 @@ class GenerateMusicExecuteMixin:
                 saw_runtime_progress = True
                 if stop_event is not None:
                     stop_event.set()
-                if progress_thread is not None:
-                    progress_thread.join(timeout=1.0)
-                    progress_thread = None
+                _stop_progress_estimator_if_finished()
 
             if gen_thread.is_alive():
                 logger.error(

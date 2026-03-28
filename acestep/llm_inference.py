@@ -1165,6 +1165,7 @@ class LLMHandler:
         # loads to GPU once and offloads once, instead of per-item.
         if is_batch:
             output_texts = []
+            batch_total = len(formatted_prompt_list)
 
             with self._load_model_context():
                 for i, formatted_prompt in enumerate(formatted_prompt_list):
@@ -1177,8 +1178,10 @@ class LLMHandler:
                             torch.mps.manual_seed(seeds[i])
 
                     item_progress_callback = None
+                    item_progress_state = {"current": 0, "total": 0, "desc": ""}
                     if progress_callback is not None:
-                        def _item_progress(current, total, desc, index=i, batch_total=len(formatted_prompt_list)):
+                        def _item_progress(current, total, desc, index=i):
+                            item_progress_state.update(current=current, total=total, desc=desc)
                             progress_callback(index * total + current, batch_total * total, desc)
 
                         item_progress_callback = _item_progress
@@ -1208,6 +1211,16 @@ class LLMHandler:
                     )
 
                     output_texts.append(output_text)
+                    if (
+                        progress_callback is not None
+                        and item_progress_state["total"] > 0
+                        and item_progress_state["current"] < item_progress_state["total"]
+                    ):
+                        progress_callback(
+                            (i + 1) * item_progress_state["total"],
+                            batch_total * item_progress_state["total"],
+                            item_progress_state["desc"],
+                        )
 
             return output_texts
 
@@ -4068,8 +4081,10 @@ class LLMHandler:
                     mx.random.seed(seeds[i])
 
                 item_progress_callback = None
+                item_progress_state = {"current": 0, "total": 0, "desc": ""}
                 if progress_callback is not None:
                     def _item_progress(current, total, desc, index=i, batch_total=batch_size):
+                        item_progress_state.update(current=current, total=total, desc=desc)
                         progress_callback(index * total + current, batch_total * total, desc)
 
                     item_progress_callback = _item_progress
@@ -4097,6 +4112,16 @@ class LLMHandler:
                     progress_callback=item_progress_callback,
                 )
                 output_texts.append(output_text)
+                if (
+                    progress_callback is not None
+                    and item_progress_state["total"] > 0
+                    and item_progress_state["current"] < item_progress_state["total"]
+                ):
+                    progress_callback(
+                        (i + 1) * item_progress_state["total"],
+                        batch_size * item_progress_state["total"],
+                        item_progress_state["desc"],
+                    )
             return output_texts
 
         # Single mode
