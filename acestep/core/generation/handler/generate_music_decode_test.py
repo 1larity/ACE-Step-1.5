@@ -195,8 +195,8 @@ class GenerateMusicDecodeMixinTests(unittest.TestCase):
         self.assertAlmostEqual(updated_costs["vae_decode_time_cost"], 1.5, places=6)
         self.assertAlmostEqual(updated_costs["total_time_cost"], 2.5, places=6)
         self.assertAlmostEqual(updated_costs["offload_time_cost"], 0.25, places=6)
-        self.assertEqual(host.progress_calls[0][0], 0.8)
-        self.assertTrue(any(desc == "Decoding audio chunks..." for _, desc in host.progress_calls))
+        self.assertEqual(host.progress_calls[0], (0.8, "Preparing audio decode..."))
+        self.assertIn((0.82, "Decoding audio chunks..."), host.progress_calls)
         self.assertAlmostEqual(host.progress_calls[-1][0], 0.98, places=6)
 
     def test_decode_pred_latents_restores_vae_device_on_decode_error(self):

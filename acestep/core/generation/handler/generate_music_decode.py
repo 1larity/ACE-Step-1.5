@@ -126,7 +126,7 @@ class GenerateMusicDecodeMixin:
             _emit_decode_progress(mapped, desc)
 
         if progress:
-            _emit_decode_progress(0.8, "Decoding audio...")
+            _emit_decode_progress(0.8, "Preparing audio decode...")
         logger.info("[generate_music] Decoding latents with VAE...")
         start_time = time.time()
         with torch.inference_mode():
@@ -171,6 +171,7 @@ class GenerateMusicDecodeMixin:
                         pred_latents_for_decode = pred_latents_for_decode.cpu()
                         self._empty_cache()
                 try:
+                    _emit_decode_progress(0.82, "Decoding audio chunks...")
                     if use_tiled_decode:
                         logger.info("[generate_music] Using tiled VAE decode to reduce VRAM usage...")
                         pred_wavs = self.tiled_decode(
