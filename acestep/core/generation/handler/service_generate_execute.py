@@ -78,6 +78,9 @@ class ServiceGenerateExecuteMixin:
         repaint_crossfade_frames: int = 10,
         repaint_injection_ratio: float = 0.5,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        sampler_mode: str = "euler",
+        velocity_norm_threshold: float = 0.0,
+        velocity_ema_factor: float = 0.0,
     ) -> Dict[str, Any]:
         """Build kwargs passed to model generation backends."""
         repaint_mask = payload.get("repaint_mask")
@@ -113,6 +116,9 @@ class ServiceGenerateExecuteMixin:
             "clean_src_latents": clean_src_latents,
             "repaint_crossfade_frames": repaint_crossfade_frames,
             "repaint_injection_ratio": repaint_injection_ratio,
+            "sampler_mode": sampler_mode,
+            "velocity_norm_threshold": velocity_norm_threshold,
+            "velocity_ema_factor": velocity_ema_factor,
         }
         if timesteps is not None:
             kwargs["timesteps"] = torch.tensor(timesteps, dtype=torch.float32, device=self.device)
@@ -202,6 +208,9 @@ class ServiceGenerateExecuteMixin:
                             context_latents_non_cover=ctx_nc,
                             progress_callback=generate_kwargs.get("progress_callback"),
                             disable_tqdm=not generate_kwargs.get("use_progress_bar", True),
+                            sampler_mode=generate_kwargs.get("sampler_mode", "euler"),
+                            velocity_norm_threshold=generate_kwargs.get("velocity_norm_threshold", 0.0),
+                            velocity_ema_factor=generate_kwargs.get("velocity_ema_factor", 0.0),
                         )
                         _tc = outputs.get("time_costs", {})
                         logger.info(
