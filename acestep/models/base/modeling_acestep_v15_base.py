@@ -1845,7 +1845,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         infer_method: str = "ode",
         use_cache: bool = True,
         infer_steps: int = 30,
-        diffusion_guidance_sale: float = 7.0,
+        diffusion_guidance_scale: float = 7.0,
         audio_cover_strength: float = 1.0,
         non_cover_text_hidden_states: Optional[torch.FloatTensor] = None,
         non_cover_text_attention_mask: Optional[torch.FloatTensor] = None,
@@ -1866,6 +1866,18 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         velocity_ema_factor: float = 0.0,
         **kwargs,
     ):
+        # Backward-compat: accept the old misspelled key "diffusion_guidance_sale"
+        # so that callers that have not yet updated their code still work correctly.
+        # Note: if both keys are passed simultaneously, the old key wins because Python
+        # cannot distinguish "explicit new key" from "new key at its default value".
+        # In practice callers should only ever pass one of the two.
+        if "diffusion_guidance_sale" in kwargs:
+            logger.warning(
+                "generate_audio() received deprecated kwarg 'diffusion_guidance_sale'; "
+                "please rename it to 'diffusion_guidance_scale'."
+            )
+            diffusion_guidance_scale = kwargs.pop("diffusion_guidance_sale")
+
         if attention_mask is None:
             latent_length = src_latents.shape[1]
             attention_mask = torch.ones(src_latents.shape[0], latent_length, device=src_latents.device, dtype=src_latents.dtype)
@@ -1957,7 +1969,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
             xt = noise
 
         # main task condition
-        do_cfg_guidance = diffusion_guidance_sale > 1.0
+        do_cfg_guidance = diffusion_guidance_scale > 1.0
         if do_cfg_guidance:
             encoder_hidden_states = torch.cat([encoder_hidden_states, self.null_condition_emb.expand_as(encoder_hidden_states)], dim=0)
             encoder_attention_mask = torch.cat([encoder_attention_mask, encoder_attention_mask], dim=0)
@@ -2013,7 +2025,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                             vt = apg_forward(
                                 pred_cond=pred_cond,
                                 pred_uncond=pred_null_cond,
-                                guidance_scale=diffusion_guidance_sale,
+                                guidance_scale=diffusion_guidance_scale,
                                 momentum_buffer=momentum_buffer,
                                 dims=[1],
                             )
@@ -2023,7 +2035,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                                 noise_pred_cond=pred_cond,
                                 noise_pred_uncond=pred_null_cond,
                                 sigma=t_curr,
-                                guidance_scale=diffusion_guidance_sale,
+                                guidance_scale=diffusion_guidance_scale,
                             )
                     else:
                         vt = pred_cond
@@ -2076,7 +2088,7 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                         if apply_cfg_corrector:
                             if not use_adg:
                                 # Use basic CFG for corrector to avoid mutating APG momentum twice per step
-                                vt2 = cfg_forward(pred_cond2, pred_null_cond2, diffusion_guidance_sale)
+                                vt2 = cfg_forward(pred_cond2, pred_null_cond2, diffusion_guidance_scale)
                             elif t_prev > 0:
                                 # Guard against sigma=0 which causes NaN in ADG division
                                 vt2 = adg_forward(
@@ -2084,10 +2096,10 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                                     noise_pred_cond=pred_cond2,
                                     noise_pred_uncond=pred_null_cond2,
                                     sigma=t_prev,
-                                    guidance_scale=diffusion_guidance_sale,
+                                    guidance_scale=diffusion_guidance_scale,
                                 )
                             else:
-                                vt2 = cfg_forward(pred_cond2, pred_null_cond2, diffusion_guidance_sale)
+                                vt2 = cfg_forward(pred_cond2, pred_null_cond2, diffusion_guidance_scale)
                         else:
                             vt2 = pred_cond2
                     if use_norm_clamp:

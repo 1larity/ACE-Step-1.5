@@ -13,6 +13,7 @@ Centralized GPU memory detection and adaptive configuration management
 """
 
 import os
+import re
 import sys
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Tuple
@@ -147,6 +148,8 @@ def is_legacy_cuda_gpu(device_index: int = 0) -> bool:
 MODEL_VRAM = {
     "dit_turbo": 4.7,  # DiT turbo model weights (bf16)
     "dit_base": 4.7,  # DiT base model weights (bf16)
+    "dit_xl_turbo": 9.0,  # DiT XL (4B) turbo model weights (bf16)
+    "dit_xl_base": 9.0,  # DiT XL (4B) base model weights (bf16)
     "vae": 0.33,  # VAE (AutoencoderOobleck) weights (fp16)
     "text_encoder": 1.2,  # Qwen3-Embedding-0.6B text encoder (bf16)
     "silence_latent": 0.01,  # Silence latent tensor
@@ -170,10 +173,48 @@ LM_VRAM = {
 DIT_INFERENCE_VRAM_PER_BATCH = {
     "turbo": 0.3,  # GB per batch item (no CFG)
     "base": 0.6,  # GB per batch item (with CFG, 2x forward)
+    "xl_turbo": 0.5,  # GB per batch item, XL (4B) no CFG, larger activations
+    "xl_base": 1.0,  # GB per batch item, XL (4B) with CFG, 2x forward
 }
 
 # Safety margin to keep free for OS/driver/fragmentation (GB)
 VRAM_SAFETY_MARGIN_GB = 0.5
+
+
+def _has_path_token(token: str, path: str) -> bool:
+    """Check if *token* appears as a delimited word in *path*.
+
+    Matches when *token* is bounded by start/end of string or a common
+    path delimiter (``/``, ``\\``, ``.``, ``_``, ``-``).
+    """
+    return re.search(rf"(^|[\\/._-]){token}($|[\\/._-])", path) is not None
+
+
+def get_dit_type_from_path(config_path: str) -> str:
+    """Derive the DiT type key from a model checkpoint path.
+
+    Returns a string suitable for looking up ``MODEL_VRAM`` (prefixed with
+    ``"dit_"``) and ``DIT_INFERENCE_VRAM_PER_BATCH``.
+
+    Examples::
+
+        "acestep-v15-xl-turbo"  -> "xl_turbo"
+        "acestep-v15-xl-base"   -> "xl_base"
+        "acestep-v15-xl-sft"    -> "xl_base"   (sft shares base VRAM profile)
+        "acestep-v15-turbo"     -> "turbo"
+        "acestep-v15-base"      -> "base"
+        "acestep-v15-sft"       -> "base"       (sft shares base VRAM profile)
+    """
+    path = (config_path or "").lower()
+    is_xl = _has_path_token("xl", path)
+
+    if _has_path_token("turbo", path):
+        variant = "turbo"
+    else:
+        # Both "base" and "sft" use the base VRAM profile (CFG doubles forward)
+        variant = "base"
+
+    return f"xl_{variant}" if is_xl else variant
 
 
 @dataclass
@@ -990,7 +1031,8 @@ def compute_adaptive_config(total_vram_gb: float, dit_type: str = "turbo") -> GP
 
     Args:
         total_vram_gb: Total GPU VRAM in GB
-        dit_type: "turbo" or "base" (affects inference VRAM due to CFG)
+        dit_type: DiT type key -- "turbo", "base", "xl_turbo", "xl_base", etc.
+                  (affects model weight size and inference VRAM due to CFG)
 
     Returns:
         GPUConfig with parameters that fit within the VRAM budget
@@ -1196,7 +1238,7 @@ def estimate_inference_vram(
     Args:
         batch_size: Number of samples to generate
         duration_s: Audio duration in seconds
-        dit_type: "turbo" or "base"
+        dit_type: DiT type key -- "turbo", "base", "xl_turbo", "xl_base", etc.
         with_lm: Whether LM is loaded
         lm_size: LM model size if with_lm is True
 
