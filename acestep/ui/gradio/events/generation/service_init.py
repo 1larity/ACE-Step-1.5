@@ -2,16 +2,24 @@
 
 import os
 import sys
+
 import gradio as gr
 from loguru import logger
 
+from acestep.gpu_config import get_global_gpu_config, is_lm_model_size_allowed, resolve_lm_backend
 from acestep.text_tasks.external_lm_providers import get_external_provider_profile
 from acestep.text_tasks.external_lm_runtime_store import (
-    load_external_lm_runtime_settings, save_external_lm_runtime_settings,
+    load_external_lm_runtime_settings,
+    save_external_lm_runtime_settings,
 )
-from acestep.gpu_config import get_global_gpu_config, is_lm_model_size_allowed, resolve_lm_backend
 from acestep.ui.gradio.i18n import t
-from .model_config import get_model_type_ui_settings, is_pure_base_model, is_sft_model
+
+from .model_config import (
+    get_model_type_ui_settings,
+    is_pure_base_model,
+    is_sft_model,
+    is_xl_model,
+)
 from .service_init_helpers import (
     build_post_init_result,
     configure_external_llm,
@@ -19,6 +27,8 @@ from .service_init_helpers import (
     select_quantization_value,
 )
 from .service_tier_updates import on_tier_change
+
+
 def refresh_checkpoints(dit_handler):
     """Refresh available checkpoints."""
     choices = dit_handler.get_available_checkpoints()
@@ -73,22 +83,28 @@ def hydrate_external_lm_provider_fields(provider: str):
 
 
 def init_service_wrapper(
-    dit_handler, llm_handler, checkpoint, config_path, device,
-    init_llm, lm_model_path, backend, external_llm_provider="",
-    external_llm_model="", external_llm_base_url="", external_llm_api_key="",
-    use_flash_attention=False, offload_to_cpu=False, offload_dit_to_cpu=False,
-    compile_model=False, quantization=False,
-    mlx_dit=True, current_mode=None, current_batch_size=None,
+    dit_handler,
+    llm_handler,
+    checkpoint,
+    config_path,
+    device,
+    init_llm,
+    lm_model_path,
+    backend,
+    external_llm_provider="",
+    external_llm_model="",
+    external_llm_base_url="",
+    external_llm_api_key="",
+    use_flash_attention=False,
+    offload_to_cpu=False,
+    offload_dit_to_cpu=False,
+    compile_model=False,
+    quantization=False,
+    mlx_dit=True,
+    current_mode=None,
+    current_batch_size=None,
 ):
-    """Wrapper for service initialization.
-
-    Returns status, button state, accordion state, model type settings,
-    and GPU-config-aware UI limits.
-
-    Args:
-        current_batch_size: Current batch size value from UI to preserve
-            after reinitialization (optional).
-    """
+    """Wrapper for service initialization."""
     quant_value = _select_quantization_value(
         quantization_enabled=quantization,
         device=device,
@@ -145,10 +161,15 @@ def init_service_wrapper(
     project_root = resolve_project_root(current_file)
 
     status, enable = dit_handler.initialize_service(
-        project_root, config_path, device,
-        use_flash_attention=use_flash_attention, compile_model=compile_model,
-        offload_to_cpu=offload_to_cpu, offload_dit_to_cpu=offload_dit_to_cpu,
-        quantization=quant_value, use_mlx_dit=mlx_dit,
+        project_root,
+        config_path,
+        device,
+        use_flash_attention=use_flash_attention,
+        compile_model=compile_model,
+        offload_to_cpu=offload_to_cpu,
+        offload_dit_to_cpu=offload_dit_to_cpu,
+        quantization=quant_value,
+        use_mlx_dit=mlx_dit,
     )
 
     if init_llm and normalized_backend == "external":
@@ -176,7 +197,7 @@ def init_service_wrapper(
     elif init_llm:
         checkpoint_dir = os.path.join(project_root, "checkpoints")
 
-        lm_status, lm_success = llm_handler.initialize(
+        lm_status, _lm_success = llm_handler.initialize(
             checkpoint_dir=checkpoint_dir,
             lm_model_path=lm_model_path,
             backend=backend,
@@ -186,6 +207,15 @@ def init_service_wrapper(
         )
 
         status += f"\n{lm_status}"
+
+    config_path_lower = (config_path or "").lower()
+    if is_xl_model(config_path_lower) and gpu_config is not None:
+        gpu_mem = getattr(gpu_config, "gpu_memory_gb", 0)
+        if 0 < gpu_mem < 16:
+            gr.Warning(
+                f"XL (4B) model requires ≥16GB VRAM (detected {gpu_mem:.0f}GB). "
+                "Consider using a 2B model, or enable CPU offload."
+            )
 
     return build_post_init_result(
         dit_handler=dit_handler,
