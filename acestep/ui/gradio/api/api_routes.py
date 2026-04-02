@@ -208,7 +208,8 @@ async def list_models(request: Request, _: None = Depends(verify_api_key)):
     models = []
     if dit_handler and dit_handler.model is not None:
         # Get current loaded model name
-        config_path = getattr(dit_handler, 'config_path', '') or ''
+        _params = getattr(dit_handler, 'last_init_params', None) or {}
+        config_path = _params.get('config_path', '')
         model_name = os.path.basename(config_path.rstrip("/\\")) if config_path else "unknown"
         models.append({
             "name": model_name,
