@@ -237,7 +237,11 @@ class GenerationParams:
             self.duration = float(DURATION_MAX)
 
         if self.bpm is not None:
-            if self.bpm < BPM_MIN:
+            if self.bpm <= 0:
+                # Sentinel value (e.g. -1 or 0) means "auto-detect" – clear to None
+                # so the LM CoT can determine the appropriate BPM.
+                self.bpm = None
+            elif self.bpm < BPM_MIN:
                 logger.warning(
                     "bpm={} is below minimum, clamping to {}.", self.bpm, BPM_MIN,
                 )
@@ -682,13 +686,13 @@ def generate_music(
                     vocal_language=dit_input_vocal_language,
                     caption=dit_input_caption,
                     lyrics=dit_input_lyrics)
-                if not params.bpm:
+                if (not params.bpm or params.bpm <= 0) and bpm and int(bpm) > 0:
                     params.cot_bpm = bpm
                 if not params.keyscale:
                     params.cot_keyscale = key_scale
                 if not params.timesignature:
                     params.cot_timesignature = time_signature
-                if not params.duration:
+                if (not params.duration or params.duration <= 0) and audio_duration and float(audio_duration) > 0:
                     params.cot_duration = audio_duration
                 if not params.vocal_language:
                     params.cot_vocal_language = vocal_language
