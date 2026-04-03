@@ -56,6 +56,7 @@ def build_output_controls(
                     value=initial_audio_format,
                     label=t("generation.audio_format_label"),
                     info=t("generation.audio_format_info"),
+                    elem_id="acestep-audio-format",
                     elem_classes=["has-info-container"],
                     interactive=not service_mode,
                 )
@@ -70,6 +71,7 @@ def build_output_controls(
                         value=params.get("mp3_bitrate", "128k"),
                         label=t("generation.mp3_bitrate_label"),
                         info=t("generation.mp3_bitrate_info"),
+                        elem_id="acestep-mp3-bitrate",
                         elem_classes=["has-info-container"],
                         visible=initial_mp3_visible,
                         interactive=initial_mp3_visible and not service_mode,
@@ -83,6 +85,7 @@ def build_output_controls(
                         value=params.get("mp3_sample_rate", 48000),
                         label=t("generation.mp3_sample_rate_label"),
                         info=t("generation.mp3_sample_rate_info"),
+                        elem_id="acestep-mp3-sample-rate",
                         elem_classes=["has-info-container"],
                         visible=initial_mp3_visible,
                         interactive=initial_mp3_visible and not service_mode,
@@ -96,6 +99,7 @@ def build_output_controls(
                     step=0.01,
                     label=t("generation.score_sensitivity_label"),
                     info=t("generation.score_sensitivity_info"),
+                    elem_id="acestep-score-scale",
                     elem_classes=["has-info-container"],
                     scale=1,
                     visible=not service_mode,
@@ -110,6 +114,7 @@ def build_output_controls(
                 label=t("generation.enable_normalization"),
                 value=params.get("enable_normalization", True) if service_pre_initialized else True,
                 info=t("generation.enable_normalization_info"),
+                elem_id="acestep-enable-normalization",
                 elem_classes=["has-info-container"],
             )
             normalization_db = gr.Slider(
@@ -119,6 +124,7 @@ def build_output_controls(
                 step=0.1,
                 value=params.get("normalization_db", -1.0) if service_pre_initialized else -1.0,
                 info=t("generation.normalization_db_info"),
+                elem_id="acestep-normalization-db",
                 elem_classes=["has-info-container"],
             )
         with gr.Row():
@@ -129,6 +135,7 @@ def build_output_controls(
                 step=0.1,
                 value=params.get("fade_in_duration", 0.0) if service_pre_initialized else 0.0,
                 info=t("generation.fade_in_duration_info"),
+                elem_id="acestep-fade-in-duration",
                 elem_classes=["has-info-container"],
             )
             fade_out_duration = gr.Slider(
@@ -138,6 +145,7 @@ def build_output_controls(
                 step=0.1,
                 value=params.get("fade_out_duration", 0.0) if service_pre_initialized else 0.0,
                 info=t("generation.fade_out_duration_info"),
+                elem_id="acestep-fade-out-duration",
                 elem_classes=["has-info-container"],
             )
         with gr.Row():
@@ -148,6 +156,7 @@ def build_output_controls(
                 step=0.01,
                 value=params.get("latent_shift", 0.0) if service_pre_initialized else 0.0,
                 info=t("generation.latent_shift_info"),
+                elem_id="acestep-latent-shift",
                 elem_classes=["has-info-container"],
             )
             latent_rescale = gr.Slider(
@@ -157,6 +166,7 @@ def build_output_controls(
                 step=0.01,
                 value=params.get("latent_rescale", 1.0) if service_pre_initialized else 1.0,
                 info=t("generation.latent_rescale_info"),
+                elem_id="acestep-latent-rescale",
                 elem_classes=["has-info-container"],
             )
     return {
@@ -199,6 +209,7 @@ def build_automation_controls(service_mode: bool) -> dict[str, Any]:
                 info=t("generation.lm_batch_chunk_info"),
                 scale=1,
                 interactive=not service_mode,
+                elem_id="acestep-lm-batch-chunk-size",
                 elem_classes=["has-info-container"],
             )
     return {"lm_batch_chunk_size": lm_batch_chunk_size}

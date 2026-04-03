@@ -108,3 +108,4 @@ packages = ["acestep", "openrouter"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "acestep/ui/gradio/interfaces/audio_player_preferences.js" = "acestep/ui/gradio/interfaces/audio_player_preferences.js"
+"acestep/ui/gradio/interfaces/user_preferences.js" = "acestep/ui/gradio/interfaces/user_preferences.js"
